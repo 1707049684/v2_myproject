@@ -359,6 +359,113 @@ def our_incremental_learning(model_old, train_data_old, train_data_new, Q_expand
     
     return model
 
+def our_incremental_learning_lora(model_old, train_data_old, train_data_new, Q_expanded, 
+                                  n_user, n_item_old, n_item_total, n_know_old, n_know_total,
+                                  rank=4):
+    """Our approach: LoRA-based dynamic neural architecture with incremental learning."""
+    print("\n=== Ours (LoRA): Low-Rank Dynamic Neural Architecture ===")
+    
+    # Create expanded model copy
+    model = GNCDM(
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        Q_mat=model_old.Q_mat.cpu().numpy(),
+        device=DEVICE,
+        alpha=0.5,
+        monotonicity_assumption=True
+    )
+    
+    # Copy weights from old model
+    model.load_state_dict(model_old.state_dict())
+    
+    # Expand topology with LoRA
+    delta_M = n_item_total - n_item_old
+    delta_K = n_know_total - n_know_old
+    model.expand_topology_lora(delta_M, delta_K, Q_expanded, M_old=n_item_old, rank=rank)
+    
+    # Create hybrid dataloader
+    dataset_old = IDCDataset(train_data_old, n_user, n_item_total)
+    dataset_new = IDCDataset(train_data_new, n_user, n_item_total)
+    
+    old_loader = DataLoader(dataset_old, batch_size=BATCH_SIZE, shuffle=True)
+    new_loader = DataLoader(dataset_new, batch_size=BATCH_SIZE, shuffle=True)
+    
+    hybrid_loader = AsymmetricHybridDataLoader(old_loader, new_loader, old_ratio=0.7, device=DEVICE)
+    
+    # MV-NN-LoRA: 参数组分离 - LoRA 参数使用高学习率加速收敛
+    # LoRA 参数特征: 名称包含 A_new_, B_new_, _agg 等后缀
+    LORA_LR = LR * 20  # 20倍学习率 (2e-2)
+    
+    lora_params = []
+    other_params = []
+    
+    for name, p in model.named_parameters():
+        if p.requires_grad:
+            if any(suffix in name for suffix in ['A_new_', 'B_new_', '_agg.weight', '_agg.bias']):
+                lora_params.append(p)
+            else:
+                other_params.append(p)
+    
+    param_groups = [
+        {'params': other_params, 'lr': LR},      # 默认学习率
+        {'params': lora_params, 'lr': LORA_LR}   # LoRA 高学习率
+    ]
+    
+    optimizer = torch.optim.Adam(param_groups)
+    
+    # Initialize decoupled loss
+    loss_fn = TopologyAwareDecoupledLoss(
+        model_old=model_old,
+        model_dynamic=model,
+        original_know_dim=n_know_old,
+        device=DEVICE
+    )
+    
+    # Calculate Q-matrix non-zero counts
+    V_old = int(model_old.Q_mat.sum().item())
+    V_new = int(Q_expanded[n_item_old:, n_know_old:].sum())
+    
+    for epoch in range(N_EPOCHS):
+        model.train()
+        total_loss = 0.0
+        
+        for batch in hybrid_loader:
+            user_log, item_log, user_id, item_id, score, is_new = batch
+            
+            user_log = user_log.to(DEVICE)
+            item_log = item_log.to(DEVICE)
+            user_id = user_id.to(DEVICE)
+            item_id = item_id.to(DEVICE)
+            score = score.to(DEVICE)
+            is_new = is_new.to(DEVICE)
+            
+            loss, _ = loss_fn(
+                user_log=user_log,
+                item_log=item_log,
+                user_id=user_id,
+                item_id=item_id,
+                score=score,
+                is_new=is_new,
+                epoch=epoch,
+                total_epochs=N_EPOCHS,
+                V_old=V_old,
+                V_new=V_new
+            )
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(hybrid_loader)
+        print(f"Epoch {epoch+1}/{N_EPOCHS}, Loss: {avg_loss:.4f}")
+    
+    return model
+
 def main():
     print("=" * 70)
     print("Ablation Comparison Experiment: Stability vs Plasticity")
@@ -475,6 +582,30 @@ def main():
     print(f"Ours - AUC_old: {auc_old_ours:.4f}, AUC_new: {auc_new_ours:.4f}, RMSE_old: {rmse_old_ours:.4f}, RMSE_new: {rmse_new_ours:.4f}, ACC_old: {acc_old_ours:.4f}, ACC_new: {acc_new_ours:.4f}, F1_old: {f1_old_ours:.4f}, F1_new: {f1_new_ours:.4f}, TMD: {tmd_ours:.4f}")
     
     # ============================================================================
+    # Process 4: Ours (LoRA-based Dynamic Neural Architecture)
+    # ============================================================================
+    print("\n" + "=" * 50)
+    print("Process 4: Ours (LoRA-based Dynamic Neural Architecture)")
+    print("=" * 50)
+    
+    # Incremental learning with LoRA approach
+    our_lora_model = our_incremental_learning_lora(
+        base_model, train_data_old, train_data_new, Q_expanded,
+        N_USER, N_ITEM_OLD, N_ITEM_OLD + N_ITEM_NEW, N_KNOW_OLD, N_KNOW_OLD + N_KNOW_NEW,
+        rank=16  # 提升 rank 以增强 LoRA 表达能力
+    )
+    
+    # Evaluate
+    auc_old_ours_lora, rmse_old_ours_lora, acc_old_ours_lora, f1_old_ours_lora = evaluate_model(our_lora_model, test_data_old, N_USER, N_ITEM_OLD + N_ITEM_NEW)
+    auc_new_ours_lora, rmse_new_ours_lora, acc_new_ours_lora, f1_new_ours_lora = evaluate_model(our_lora_model, test_data_new, N_USER, N_ITEM_OLD + N_ITEM_NEW)
+    
+    # Calculate TMD
+    theta_ours_lora = get_theta_anchor(our_lora_model, N_USER, N_ITEM_OLD + N_ITEM_NEW)
+    tmd_ours_lora = calculate_tmd(theta_anchor, theta_ours_lora, N_KNOW_OLD)
+    
+    print(f"Ours (LoRA) - AUC_old: {auc_old_ours_lora:.4f}, AUC_new: {auc_new_ours_lora:.4f}, RMSE_old: {rmse_old_ours_lora:.4f}, RMSE_new: {rmse_new_ours_lora:.4f}, ACC_old: {acc_old_ours_lora:.4f}, ACC_new: {acc_new_ours_lora:.4f}, F1_old: {f1_old_ours_lora:.4f}, F1_new: {f1_new_ours_lora:.4f}, TMD: {tmd_ours_lora:.4f}")
+    
+    # ============================================================================
     # Generate Comparison Table
     # ============================================================================
     print("\n" + "=" * 70)
@@ -490,16 +621,16 @@ def main():
     print(f"- Data type: Synthetic cognitive diagnosis data (simulated student responses)")
     
     results = pd.DataFrame({
-        'Model': ['Base', 'Baseline (Naive FT)', 'Ours (Dynamic DNA)'],
-        'AUC_old': [f"{auc_old_base:.4f}", f"{auc_old_baseline:.4f}", f"{auc_old_ours:.4f}"],
-        'AUC_new': ['-', f"{auc_new_baseline:.4f}", f"{auc_new_ours:.4f}"],
-        'RMSE_old': [f"{rmse_old_base:.4f}", f"{rmse_old_baseline:.4f}", f"{rmse_old_ours:.4f}"],
-        'RMSE_new': ['-', f"{rmse_new_baseline:.4f}", f"{rmse_new_ours:.4f}"],
-        'ACC_old': [f"{acc_old_base:.4f}", f"{acc_old_baseline:.4f}", f"{acc_old_ours:.4f}"],
-        'ACC_new': ['-', f"{acc_new_baseline:.4f}", f"{acc_new_ours:.4f}"],
-        'F1_old': [f"{f1_old_base:.4f}", f"{f1_old_baseline:.4f}", f"{f1_old_ours:.4f}"],
-        'F1_new': ['-', f"{f1_new_baseline:.4f}", f"{f1_new_ours:.4f}"],
-        'TMD': [0.0, f"{tmd_baseline:.4f}", f"{tmd_ours:.4f}"]
+        'Model': ['Base', 'Baseline (Naive FT)', 'Ours (Dynamic DNA)', 'Ours (LoRA)'],
+        'AUC_old': [f"{auc_old_base:.4f}", f"{auc_old_baseline:.4f}", f"{auc_old_ours:.4f}", f"{auc_old_ours_lora:.4f}"],
+        'AUC_new': ['-', f"{auc_new_baseline:.4f}", f"{auc_new_ours:.4f}", f"{auc_new_ours_lora:.4f}"],
+        'RMSE_old': [f"{rmse_old_base:.4f}", f"{rmse_old_baseline:.4f}", f"{rmse_old_ours:.4f}", f"{rmse_old_ours_lora:.4f}"],
+        'RMSE_new': ['-', f"{rmse_new_baseline:.4f}", f"{rmse_new_ours:.4f}", f"{rmse_new_ours_lora:.4f}"],
+        'ACC_old': [f"{acc_old_base:.4f}", f"{acc_old_baseline:.4f}", f"{acc_old_ours:.4f}", f"{acc_old_ours_lora:.4f}"],
+        'ACC_new': ['-', f"{acc_new_baseline:.4f}", f"{acc_new_ours:.4f}", f"{acc_new_ours_lora:.4f}"],
+        'F1_old': [f"{f1_old_base:.4f}", f"{f1_old_baseline:.4f}", f"{f1_old_ours:.4f}", f"{f1_old_ours_lora:.4f}"],
+        'F1_new': ['-', f"{f1_new_baseline:.4f}", f"{f1_new_ours:.4f}", f"{f1_new_ours_lora:.4f}"],
+        'TMD': [0.0, f"{tmd_baseline:.4f}", f"{tmd_ours:.4f}", f"{tmd_ours_lora:.4f}"]
     })
     
     print("\n" + results.to_markdown(index=False))

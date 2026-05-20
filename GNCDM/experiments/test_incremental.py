@@ -141,6 +141,61 @@ def test_all_components():
         traceback.print_exc()
         return False
     
+    # Test 4b: Test LoRA topology expansion
+    print("\n[Test 4b] Testing LoRA topology expansion...")
+    try:
+        # Create LoRA model (copy of old model)
+        model_lora = GNCDM(
+            n_user=n_user,
+            n_item=n_item,
+            n_know=n_know,
+            user_dim=32,
+            item_dim=32,
+            Q_mat=Q_mat,
+            device=device,
+            alpha=0.5,
+            monotonicity_assumption=True
+        )
+        
+        # Expand topology with LoRA
+        model_lora.expand_topology_lora(delta_M, delta_K, Q_expanded, M_old=n_item, rank=4)
+        
+        # Verify expansion
+        assert model_lora.n_item == n_item + delta_M, "LoRA Item count mismatch"
+        assert model_lora.n_know == n_know + delta_K, "LoRA Knowledge count mismatch"
+        assert model_lora.is_expanded == True, "LoRA Expansion flag not set"
+        assert model_lora.use_lora == True, "LoRA flag not set"
+        
+        # Check that old parameters are frozen
+        old_params_frozen_lora = all(not p.requires_grad for name, p in model_lora.named_parameters() 
+                                     if 'f_nn.' in name or 'g_nn.' in name)
+        assert old_params_frozen_lora, "LoRA Old parameters not frozen"
+        
+        # Check that LoRA parameters are trainable
+        lora_params_trainable = all(p.requires_grad for name, p in model_lora.named_parameters() 
+                                    if 'A_new_' in name or 'B_new_' in name or '_agg' in name)
+        assert lora_params_trainable, "LoRA parameters not trainable"
+        
+        # Check LoRA parameters exist
+        assert hasattr(model_lora, 'A_new_g'), "Missing A_new_g"
+        assert hasattr(model_lora, 'B_new_g'), "Missing B_new_g"
+        assert hasattr(model_lora, 'A_new_f'), "Missing A_new_f"
+        assert hasattr(model_lora, 'B_new_f'), "Missing B_new_f"
+        
+        # Check B matrices are zero-initialized
+        assert torch.all(model_lora.B_new_g == 0), "B_new_g not zero-initialized"
+        assert torch.all(model_lora.B_new_f == 0), "B_new_f not zero-initialized"
+        
+        print("[OK] LoRA topology expansion successful!")
+        print(f"  - Items: {n_item} -> {model_lora.n_item}")
+        print(f"  - Knowledge: {n_know} -> {model_lora.n_know}")
+        print(f"  - LoRA rank: {model_lora.lora_rank}")
+    except Exception as e:
+        print(f"[FAIL] LoRA topology expansion failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
     # Test 5: Test MNAR masking
     print("\n[Test 5] Testing MNAR masking...")
     try:
