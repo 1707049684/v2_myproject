@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-增量学习实验：Ours (Dynamic DNA) vs Ours (LoRA)
-使用 Math1 真实数据集，2/3 作为旧数据，1/3 作为新数�?
+增量学习实验：Ours (Dynamic DNA) vs Ours (LoRA) vs Baselines
+使用 ASSIST 0910 真实数据集，2/3 作为旧数据，1/3 作为新数据
+
+数据集参数：
+- 用户数 (n_user): 4128
+- 题目数 (n_item): 17745
+- 知识点数 (n_know): 123
+- 划分比例: 旧数据占 2/3，新数据占 1/3
 """
 
 import sys
@@ -25,12 +31,17 @@ from sklearn.metrics import roc_auc_score, mean_squared_error, accuracy_score, f
 from core.model import GNCDM
 
 # Configuration
-DATA_DIR = os.path.join(gncdm_dir, 'data')
+DATA_DIR = os.path.join(os.path.dirname(gncdm_dir), 'data', 'a0910')  # 注意路径调整：上级目录的data/a0910
 SAVE_DIR = os.path.join(gncdm_dir, 'incremental_result')
 
 # Create save directory
 if not os.path.exists(SAVE_DIR):
     os.makedirs(SAVE_DIR)
+
+# ASSIST 0910 数据集参数（已预先计算）
+N_USER = 4128
+N_ITEM_TOTAL = 17745
+N_KNOW_TOTAL = 123
 
 # Dataset class
 class IDCDataset(Dataset):
@@ -55,21 +66,21 @@ def set_seed(seed=42):
     torch.cuda.manual_seed_all(seed)
 
 # Evaluation function
-def evaluate_model(model, test_data, n_user, n_item, base_model=None):
+def evaluate_model(model, test_data, n_user, n_item, base_model=None, device=torch.device('cpu')):
     model.eval()
     with torch.no_grad():
         preds = []
         labels = []
         
         test_dataset = IDCDataset(test_data, n_user, n_item)
-        test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)  # 更大batch加速评估
         
         for user_ids, item_ids, _labels in test_loader:
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
             
-            user_log = torch.zeros((len(user_ids), n_item))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = model(user_log, item_log, user_ids, item_ids)
             preds.extend(pred.cpu().numpy())
@@ -87,23 +98,18 @@ def evaluate_model(model, test_data, n_user, n_item, base_model=None):
             base_model.eval()
             base_preds = []
             with torch.no_grad():
-                # Base model has original dimensions (before expansion)
-                # We need to use the original n_item for base_model
                 base_n_item = base_model.n_item
                 
                 for user_ids, item_ids, _ in test_loader:
-                    user_ids = user_ids.long()
-                    item_ids = item_ids.long()
+                    user_ids = user_ids.long().to(device)
+                    item_ids = item_ids.long().to(device)
                     
-                    # For base model, use original dimensions
-                    user_log_base = torch.zeros((len(user_ids), base_n_item))
-                    item_log_base = torch.zeros((len(item_ids), n_user))
+                    user_log_base = torch.zeros((len(user_ids), base_n_item), device=device)
+                    item_log_base = torch.zeros((len(item_ids), n_user), device=device)
                     
                     base_pred = base_model(user_log_base, item_log_base, user_ids, item_ids)
                     base_preds.extend(base_pred.cpu().numpy())
             
-            # TMD: Mean Absolute Difference between current and base predictions
-            # Lower TMD means less drift (better preservation of old knowledge)
             preds_np = np.array(preds)
             base_preds_np = np.array(base_preds)
             tmd = np.mean(np.abs(preds_np - base_preds_np))
@@ -117,7 +123,7 @@ def evaluate_model(model, test_data, n_user, n_item, base_model=None):
         }
 
 # Train base model
-def train_base_model(model, train_data, valid_data, n_user, n_item, batch_size=256, lr=1e-3, n_epoch=15):
+def train_base_model(model, train_data, valid_data, n_user, n_item, device, batch_size=512, lr=1e-3, n_epoch=15):
     train_dataset = IDCDataset(train_data, n_user, n_item)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
@@ -131,15 +137,15 @@ def train_base_model(model, train_data, valid_data, n_user, n_item, batch_size=2
         model.train()
         train_loss = 0.0
         
-        for user_ids, item_ids, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{n_epoch}"):
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
-            labels = labels.float()
+        for user_ids, item_ids, labels in tqdm(train_loader, desc=f"Base Epoch {epoch+1}/{n_epoch}"):
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
+            labels = labels.float().to(device)
             
             optimizer.zero_grad()
             
-            user_log = torch.zeros((len(user_ids), n_item))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = model(user_log, item_log, user_ids, item_ids)
             loss = criterion(pred, labels.unsqueeze(1))
@@ -152,7 +158,7 @@ def train_base_model(model, train_data, valid_data, n_user, n_item, batch_size=2
         train_loss = train_loss / len(train_loader)
         
         # Evaluate on validation
-        valid_result = evaluate_model(model, valid_data, n_user, n_item)
+        valid_result = evaluate_model(model, valid_data, n_user, n_item, device=device)
         
         print(f"  Train Loss: {train_loss:.4f}, Valid AUC: {valid_result['auc']:.4f}")
         
@@ -166,29 +172,17 @@ def train_base_model(model, train_data, valid_data, n_user, n_item, batch_size=2
     return model
 
 # Full Replay Oracle - Theoretical Upper Bound
-def train_incremental_full_replay_oracle(base_model, train_data_new, train_data_old, valid_data, n_user, n_item_old, n_item_new, n_know_old, n_know_new, Q_expanded, batch_size=256, lr=1e-3, n_epoch=10):
-    """
-    Full Replay Oracle - Theoretical Upper Bound for incremental learning.
-    This represents the ideal performance when the model has access to complete replay of old data.
-    
-    Features:
-    - Direct matrix expansion without lateral branching
-    - All parameters trainable (global fine-tuning)
-    - Training on complete dataset (old + new items combined)
-    - Uses original BCELoss without decoupling
-    """
-    # Expand topology with Full Replay Oracle method
+def train_incremental_full_replay_oracle(base_model, train_data_new, train_data_old, valid_data, 
+                                         n_user, n_item_old, n_item_new, n_know_old, n_know_new, 
+                                         Q_expanded, device, batch_size=512, lr=1e-3, n_epoch=10):
     base_model.full_replay_oracle_expand_topology(delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded)
     
-    # Prepare MIXED training data (both new AND old items) - critical for inducing forgetting
+    # Prepare MIXED training data (both new AND old items)
     train_data_mixed = pd.concat([train_data_old, train_data_new], ignore_index=True)
     train_dataset = IDCDataset(train_data_mixed, n_user, n_item_old + n_item_new)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
-    # Optimizer - train ALL parameters (no freezing whatsoever)
     optimizer = torch.optim.Adam(base_model.parameters(), lr=lr)
-    
-    # Use original BCELoss (NOT the decoupled loss)
     criterion = nn.BCELoss()
     
     best_valid_auc = 0.0
@@ -199,14 +193,14 @@ def train_incremental_full_replay_oracle(base_model, train_data_new, train_data_
         train_loss = 0.0
         
         for user_ids, item_ids, labels in tqdm(train_loader, desc=f"Oracle Epoch {epoch+1}/{n_epoch}"):
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
-            labels = labels.float()
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
+            labels = labels.float().to(device)
             
             optimizer.zero_grad()
             
-            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = base_model(user_log, item_log, user_ids, item_ids)
             loss = criterion(pred, labels.unsqueeze(1))
@@ -217,9 +211,7 @@ def train_incremental_full_replay_oracle(base_model, train_data_new, train_data_
             train_loss += loss.item()
         
         train_loss = train_loss / len(train_loader)
-        
-        # Evaluate on validation
-        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new)
+        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new, device=device)
         
         print(f"  Train Loss: {train_loss:.4f}, Valid AUC: {valid_result['auc']:.4f}")
         
@@ -233,34 +225,16 @@ def train_incremental_full_replay_oracle(base_model, train_data_new, train_data_
     return base_model
 
 # Naive Fine-Tuning (NFT) - Catastrophic Forgetting Control Group
-def train_incremental_nft(base_model, train_data_new, valid_data, n_user, n_item_old, n_item_new, n_know_old, n_know_new, Q_expanded, batch_size=256, lr=1e-3, n_epoch=10):
-    """
-    Naive Fine-Tuning (NFT) - Catastrophic Forgetting Control Group.
-    This baseline intentionally induces maximum catastrophic forgetting by:
-    - Training ONLY on new data without any replay of old data
-    - Fine-tuning ALL parameters globally
-    - Using simple BCELoss without any decoupling mechanism
-    
-    Features:
-    - Direct matrix expansion using full_replay_oracle_expand_topology
-    - All parameters trainable (global fine-tuning)
-    - Training ONLY on new data (NO old data replay)
-    - Uses original BCELoss without decoupling
-    
-    This is designed to measure the worst-case forgetting scenario.
-    """
-    # Expand topology (same structure as Full Replay Oracle for fair comparison)
+def train_incremental_nft(base_model, train_data_new, valid_data, 
+                          n_user, n_item_old, n_item_new, n_know_old, n_know_new, 
+                          Q_expanded, device, batch_size=512, lr=1e-3, n_epoch=10):
     base_model.full_replay_oracle_expand_topology(delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded)
     
-    # CRITICAL: Train ONLY on NEW data - NO old data replay
-    # This forces the model to adapt to new knowledge without remembering old tasks
+    # Train ONLY on NEW data - NO old data replay
     train_dataset = IDCDataset(train_data_new, n_user, n_item_old + n_item_new)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
-    # Optimizer - train ALL parameters (no freezing whatsoever)
     optimizer = torch.optim.Adam(base_model.parameters(), lr=lr)
-    
-    # Use original BCELoss (NOT the decoupled loss)
     criterion = nn.BCELoss()
     
     best_valid_auc = 0.0
@@ -271,14 +245,14 @@ def train_incremental_nft(base_model, train_data_new, valid_data, n_user, n_item
         train_loss = 0.0
         
         for user_ids, item_ids, labels in tqdm(train_loader, desc=f"NFT Epoch {epoch+1}/{n_epoch}"):
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
-            labels = labels.float()
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
+            labels = labels.float().to(device)
             
             optimizer.zero_grad()
             
-            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = base_model(user_log, item_log, user_ids, item_ids)
             loss = criterion(pred, labels.unsqueeze(1))
@@ -289,9 +263,7 @@ def train_incremental_nft(base_model, train_data_new, valid_data, n_user, n_item
             train_loss += loss.item()
         
         train_loss = train_loss / len(train_loader)
-        
-        # Evaluate on validation
-        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new)
+        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new, device=device)
         
         print(f"  Train Loss: {train_loss:.4f}, Valid AUC: {valid_result['auc']:.4f}")
         
@@ -304,16 +276,15 @@ def train_incremental_nft(base_model, train_data_new, valid_data, n_user, n_item
     
     return base_model
 
-# Incremental training with Ours-Ablated (with lateral branching but without mathematical constraints)
-def train_incremental_baseline(base_model, train_data_new, valid_data, n_user, n_item_old, n_item_new, n_know_old, n_know_new, Q_expanded, batch_size=256, lr=1e-3, n_epoch=10):
-    # Expand topology WITH lateral branching (f_nn_new, g_nn_new)
+# Ours-Ablated (with lateral branching but without mathematical constraints)
+def train_incremental_baseline(base_model, train_data_new, valid_data, 
+                               n_user, n_item_old, n_item_new, n_know_old, n_know_new, 
+                               Q_expanded, device, batch_size=512, lr=1e-3, n_epoch=10):
     base_model.expand_topology(delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded)
     
-    # Prepare training data (only new items)
     train_dataset = IDCDataset(train_data_new, n_user, n_item_old + n_item_new)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
-    # Optimizer - train ALL parameters (no freezing)
     optimizer = torch.optim.Adam(base_model.parameters(), lr=lr)
     criterion = nn.BCELoss()
     
@@ -325,14 +296,14 @@ def train_incremental_baseline(base_model, train_data_new, valid_data, n_user, n
         train_loss = 0.0
         
         for user_ids, item_ids, labels in tqdm(train_loader, desc=f"Ours-Ablated Epoch {epoch+1}/{n_epoch}"):
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
-            labels = labels.float()
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
+            labels = labels.float().to(device)
             
             optimizer.zero_grad()
             
-            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = base_model(user_log, item_log, user_ids, item_ids)
             loss = criterion(pred, labels.unsqueeze(1))
@@ -343,9 +314,7 @@ def train_incremental_baseline(base_model, train_data_new, valid_data, n_user, n
             train_loss += loss.item()
         
         train_loss = train_loss / len(train_loader)
-        
-        # Evaluate on validation
-        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new)
+        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new, device=device)
         
         print(f"  Train Loss: {train_loss:.4f}, Valid AUC: {valid_result['auc']:.4f}")
         
@@ -359,7 +328,9 @@ def train_incremental_baseline(base_model, train_data_new, valid_data, n_user, n
     return base_model
 
 # Incremental training with Dynamic DNA
-def train_incremental_dna(base_model, train_data_new, valid_data, n_user, n_item_old, n_item_new, n_know_old, n_know_new, Q_expanded, batch_size=256, lr=1e-3, n_epoch=10):
+def train_incremental_dna(base_model, train_data_new, valid_data, 
+                          n_user, n_item_old, n_item_new, n_know_old, n_know_new, 
+                          Q_expanded, device, batch_size=512, lr=1e-3, n_epoch=10):
     # Expand topology using Dynamic DNA
     base_model.expand_topology(delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded)
     
@@ -384,14 +355,14 @@ def train_incremental_dna(base_model, train_data_new, valid_data, n_user, n_item
         train_loss = 0.0
         
         for user_ids, item_ids, labels in tqdm(train_loader, desc=f"DNA Epoch {epoch+1}/{n_epoch}"):
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
-            labels = labels.float()
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
+            labels = labels.float().to(device)
             
             optimizer.zero_grad()
             
-            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = base_model(user_log, item_log, user_ids, item_ids)
             loss = criterion(pred, labels.unsqueeze(1))
@@ -402,9 +373,7 @@ def train_incremental_dna(base_model, train_data_new, valid_data, n_user, n_item
             train_loss += loss.item()
         
         train_loss = train_loss / len(train_loader)
-        
-        # Evaluate on validation
-        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new)
+        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new, device=device)
         
         print(f"  Train Loss: {train_loss:.4f}, Valid AUC: {valid_result['auc']:.4f}")
         
@@ -418,9 +387,12 @@ def train_incremental_dna(base_model, train_data_new, valid_data, n_user, n_item
     return base_model
 
 # Incremental training with LoRA
-def train_incremental_lora(base_model, train_data_new, valid_data, n_user, n_item_old, n_item_new, n_know_old, n_know_new, Q_expanded, rank=16, batch_size=256, lr=1e-3, n_epoch=10):
+def train_incremental_lora(base_model, train_data_new, valid_data, 
+                           n_user, n_item_old, n_item_new, n_know_old, n_know_new, 
+                           Q_expanded, device, rank=16, batch_size=512, lr=1e-3, n_epoch=10):
     # Expand topology using LoRA
-    base_model.expand_topology_lora(delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded, M_old=n_item_old, rank=rank)
+    base_model.expand_topology_lora(delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded, 
+                                   M_old=n_item_old, rank=rank)
     
     # Prepare training data (only new items)
     train_dataset = IDCDataset(train_data_new, n_user, n_item_old + n_item_new)
@@ -438,7 +410,7 @@ def train_incremental_lora(base_model, train_data_new, valid_data, n_user, n_ite
     
     optimizer = torch.optim.Adam([
         {'params': other_params, 'lr': lr},
-        {'params': lora_params, 'lr': lr * 10}  # 10x higher LR for LoRA
+        {'params': lora_params, 'lr': lr * 10}
     ])
     criterion = nn.BCELoss()
     
@@ -450,14 +422,14 @@ def train_incremental_lora(base_model, train_data_new, valid_data, n_user, n_ite
         train_loss = 0.0
         
         for user_ids, item_ids, labels in tqdm(train_loader, desc=f"LoRA Epoch {epoch+1}/{n_epoch}"):
-            user_ids = user_ids.long()
-            item_ids = item_ids.long()
-            labels = labels.float()
+            user_ids = user_ids.long().to(device)
+            item_ids = item_ids.long().to(device)
+            labels = labels.float().to(device)
             
             optimizer.zero_grad()
             
-            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new))
-            item_log = torch.zeros((len(item_ids), n_user))
+            user_log = torch.zeros((len(user_ids), n_item_old + n_item_new), device=device)
+            item_log = torch.zeros((len(item_ids), n_user), device=device)
             
             pred = base_model(user_log, item_log, user_ids, item_ids)
             loss = criterion(pred, labels.unsqueeze(1))
@@ -468,9 +440,7 @@ def train_incremental_lora(base_model, train_data_new, valid_data, n_user, n_ite
             train_loss += loss.item()
         
         train_loss = train_loss / len(train_loader)
-        
-        # Evaluate on validation
-        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new)
+        valid_result = evaluate_model(base_model, valid_data, n_user, n_item_old + n_item_new, device=device)
         
         print(f"  Train Loss: {train_loss:.4f}, Valid AUC: {valid_result['auc']:.4f}")
         
@@ -487,34 +457,59 @@ def main():
     set_seed(42)
     
     print("=" * 80)
-    print("Incremental Learning Experiment - Math1 Real Dataset")
-    print("2/3 data as old data, 1/3 data as new data")
+    print("增量学习实验 - ASSIST 0910 真实数据集")
+    print("2/3 数据作为旧数据，1/3 数据作为新数据")
     print("=" * 80)
     print()
     
+    # Check if data exists
+    if not os.path.exists(DATA_DIR):
+        print(f"错误：数据目录不存在: {DATA_DIR}")
+        print("请确保 ASSIST 0910 数据集位于正确位置")
+        return
+    
     # Load data
-    print("Loading Math1 dataset...")
-    df_train = pd.read_csv(os.path.join(DATA_DIR, 'math1_train_0.8_0.2.csv'))
-    df_valid = pd.read_csv(os.path.join(DATA_DIR, 'math1_valid_0.8_0.2.csv'))
-    df_test = pd.read_csv(os.path.join(DATA_DIR, 'math1_test_0.8_0.2.csv'))
+    print("加载 ASSIST 0910 数据集...")
+    print(f"数据目录: {DATA_DIR}")
     
-    Q_mat = np.load(os.path.join(DATA_DIR, 'math1_Q_matrix.npy'))
+    try:
+        df_train = pd.read_csv(os.path.join(DATA_DIR, 'train.csv'))
+        df_valid = pd.read_csv(os.path.join(DATA_DIR, 'valid.csv'))
+        df_test = pd.read_csv(os.path.join(DATA_DIR, 'test.csv'))
+        Q_mat = np.load(os.path.join(DATA_DIR, 'Q_matrix.npy'))
+    except Exception as e:
+        print(f"数据加载失败: {e}")
+        return
     
-    n_user = 4209
-    n_item_total = 20
-    n_know_total = 11
+    print(f"训练集样本数: {len(df_train)}")
+    print(f"验证集样本数: {len(df_valid)}")
+    print(f"测试集样本数: {len(df_test)}")
+    print(f"Q矩阵形状: {Q_mat.shape}")
+    
+    # Dataset parameters
+    n_user = N_USER
+    n_item_total = N_ITEM_TOTAL
+    n_know_total = N_KNOW_TOTAL
     
     # Split items: 2/3 old, 1/3 new
-    n_item_old = int(n_item_total * 2 / 3)  # 13 items
-    n_item_new = n_item_total - n_item_old  # 7 items
+    n_item_old = int(n_item_total * 2 / 3)  # 11830 items
+    n_item_new = n_item_total - n_item_old   # 5915 items
     
     # Split knowledge: 2/3 old, 1/3 new
-    n_know_old = int(n_know_total * 2 / 3)  # 7 concepts
-    n_know_new = n_know_total - n_know_old  # 4 concepts
+    n_know_old = int(n_know_total * 2 / 3)  # 82 concepts
+    n_know_new = n_know_total - n_know_old   # 41 concepts
     
-    print(f"数据集划�?")
-    print(f"  旧题目数: {n_item_old}, 新知识点�? {n_know_old}")
-    print(f"  新题目数: {n_item_new}, 新知识点�? {n_know_new}")
+    print(f"\n数据集划分:")
+    print(f"  旧题目数: {n_item_old}, 旧知识点数: {n_know_old}")
+    print(f"  新题目数: {n_item_new}, 新知识点数: {n_know_new}")
+    print()
+    
+    # Device configuration
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"使用设备: {device}")
+    if torch.cuda.is_available():
+        print(f"GPU 名称: {torch.cuda.get_device_name(0)}")
+        print(f"GPU 显存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
     print()
     
     # Old Q matrix (first n_item_old items, first n_know_old concepts)
@@ -524,30 +519,28 @@ def main():
     Q_expanded = Q_mat.copy()
     
     # Split training data
+    print("分割训练数据...")
     train_df_old = df_train[df_train['item_id'] < n_item_old].copy()
     train_df_new = df_train[df_train['item_id'] >= n_item_old].copy()
-    
-    # Split validation data
-    valid_df_old = df_valid[df_valid['item_id'] < n_item_old].copy()
     
     # Split test data
     test_df_old = df_test[df_test['item_id'] < n_item_old].copy()
     test_df_new = df_test[df_test['item_id'] >= n_item_old].copy()
     
-    print(f"Training data: old items={len(train_df_old)}, new items={len(train_df_new)}")
-    print(f"Validation data: old items={len(valid_df_old)}")
-    print(f"Test data: old items={len(test_df_old)}, new items={len(test_df_new)}")
+    print(f"  旧训练样本: {len(train_df_old)}")
+    print(f"  新训练样本: {len(train_df_new)}")
+    print(f"  旧测试样本: {len(test_df_old)}")
+    print(f"  新测试样本: {len(test_df_new)}")
     print()
     
     # Results list
     results = []
     
-    # 1. Train Base Model on old data
+    # 1. Base Model
     print("=" * 80)
-    print("1. 训练 Base 模型（仅旧数据）")
+    print("1. 训练基础模型 (Base Model)")
     print("=" * 80)
     
-    device = torch.device('cpu')
     base_model = GNCDM(
         n_user=n_user,
         n_item=n_item_old,
@@ -558,13 +551,15 @@ def main():
         Q_mat=Q_old,
         monotonicity_assumption=True,
         device=device
-    )
+    ).to(device)
     
-    base_model = train_base_model(base_model, train_df_old, valid_df_old, n_user, n_item_old)
+    base_model = train_base_model(base_model, train_df_old, df_valid, n_user, n_item_old, device)
     
-    # Evaluate base model on old test set
-    base_result_old = evaluate_model(base_model, test_df_old, n_user, n_item_old)
-    print(f"Base 模型 - 旧测试集: AUC={base_result_old['auc']:.4f}, RMSE={base_result_old['rmse']:.4f}, ACC={base_result_old['acc']:.4f}, F1={base_result_old['f1']:.4f}")
+    # Evaluate
+    base_result_old = evaluate_model(base_model, test_df_old, n_user, n_item_old, device=device)
+    
+    print(f"Base - 旧测试集: AUC={base_result_old['auc']:.4f}, RMSE={base_result_old['rmse']:.4f}, "
+          f"ACC={base_result_old['acc']:.4f}, F1={base_result_old['f1']:.4f}")
     
     results.append({
         'Model': 'Base',
@@ -575,13 +570,62 @@ def main():
         'ACC_old': base_result_old['acc'],
         'ACC_new': '-',
         'F1_old': base_result_old['f1'],
-        'F1_new': '-'
+        'F1_new': '-',
+        'TMD': 0.0
     })
     
-    # 2. Ours-Ablated (Naive Fine-Tuning without lateral branching)
+    # 2. Naive Fine-Tuning (NFT)
     print()
     print("=" * 80)
-    print("2. Ours-Ablated (Naive Fine-Tuning)")
+    print("2. Naive Fine-Tuning (NFT) - Catastrophic Forgetting")
+    print("=" * 80)
+    
+    nft_model = GNCDM(
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        alpha=0.8,
+        Q_mat=Q_old,
+        monotonicity_assumption=True,
+        device=device
+    ).to(device)
+    nft_model.load_state_dict(base_model.state_dict())
+    
+    nft_model = train_incremental_nft(
+        nft_model, train_df_new, df_valid, 
+        n_user, n_item_old, n_item_new, 
+        n_know_old, n_know_new, Q_expanded,
+        device=device
+    )
+    
+    # Evaluate
+    nft_result_old = evaluate_model(nft_model, test_df_old, n_user, n_item_old + n_item_new, base_model=base_model, device=device)
+    nft_result_new = evaluate_model(nft_model, test_df_new, n_user, n_item_old + n_item_new, device=device)
+    
+    print(f"NFT - 旧测试集: AUC={nft_result_old['auc']:.4f}, RMSE={nft_result_old['rmse']:.4f}, "
+          f"ACC={nft_result_old['acc']:.4f}, F1={nft_result_old['f1']:.4f}, TMD={nft_result_old['tmd']:.4f}")
+    print(f"NFT - 新测试集: AUC={nft_result_new['auc']:.4f}, RMSE={nft_result_new['rmse']:.4f}, "
+          f"ACC={nft_result_new['acc']:.4f}, F1={nft_result_new['f1']:.4f}")
+    
+    results.append({
+        'Model': 'NFT',
+        'AUC_old': nft_result_old['auc'],
+        'AUC_new': nft_result_new['auc'],
+        'RMSE_old': nft_result_old['rmse'],
+        'RMSE_new': nft_result_new['rmse'],
+        'ACC_old': nft_result_old['acc'],
+        'ACC_new': nft_result_new['acc'],
+        'F1_old': nft_result_old['f1'],
+        'F1_new': nft_result_new['f1'],
+        'TMD': nft_result_old['tmd']
+    })
+    
+    # 3. Ours-Ablated
+    print()
+    print("=" * 80)
+    print("3. Ours-Ablated (Lateral Branching Only)")
     print("=" * 80)
     
     baseline_model = GNCDM(
@@ -594,21 +638,24 @@ def main():
         Q_mat=Q_old,
         monotonicity_assumption=True,
         device=device
-    )
+    ).to(device)
     baseline_model.load_state_dict(base_model.state_dict())
     
     baseline_model = train_incremental_baseline(
         baseline_model, train_df_new, df_valid, 
         n_user, n_item_old, n_item_new, 
-        n_know_old, n_know_new, Q_expanded
+        n_know_old, n_know_new, Q_expanded,
+        device=device
     )
     
     # Evaluate
-    baseline_result_old = evaluate_model(baseline_model, test_df_old, n_user, n_item_old + n_item_new, base_model)
-    baseline_result_new = evaluate_model(baseline_model, test_df_new, n_user, n_item_old + n_item_new)
+    baseline_result_old = evaluate_model(baseline_model, test_df_old, n_user, n_item_old + n_item_new, base_model=base_model, device=device)
+    baseline_result_new = evaluate_model(baseline_model, test_df_new, n_user, n_item_old + n_item_new, device=device)
     
-    print(f"Ours-Ablated - 旧测试集: AUC={baseline_result_old['auc']:.4f}, RMSE={baseline_result_old['rmse']:.4f}, ACC={baseline_result_old['acc']:.4f}, F1={baseline_result_old['f1']:.4f}, TMD={baseline_result_old['tmd']:.4f}")
-    print(f"Ours-Ablated - 新测试集: AUC={baseline_result_new['auc']:.4f}, RMSE={baseline_result_new['rmse']:.4f}, ACC={baseline_result_new['acc']:.4f}, F1={baseline_result_new['f1']:.4f}")
+    print(f"Ours-Ablated - 旧测试集: AUC={baseline_result_old['auc']:.4f}, RMSE={baseline_result_old['rmse']:.4f}, "
+          f"ACC={baseline_result_old['acc']:.4f}, F1={baseline_result_old['f1']:.4f}, TMD={baseline_result_old['tmd']:.4f}")
+    print(f"Ours-Ablated - 新测试集: AUC={baseline_result_new['auc']:.4f}, RMSE={baseline_result_new['rmse']:.4f}, "
+          f"ACC={baseline_result_new['acc']:.4f}, F1={baseline_result_new['f1']:.4f}")
     
     results.append({
         'Model': 'Ours-Ablated',
@@ -623,10 +670,10 @@ def main():
         'TMD': baseline_result_old['tmd']
     })
     
-    # 3. Ours (Dynamic DNA)
+    # 4. Ours (Dynamic DNA)
     print()
     print("=" * 80)
-    print("3. Ours (Dynamic DNA) 增量学习")
+    print("4. Ours (Dynamic DNA)")
     print("=" * 80)
     
     dna_model = GNCDM(
@@ -639,21 +686,24 @@ def main():
         Q_mat=Q_old,
         monotonicity_assumption=True,
         device=device
-    )
+    ).to(device)
     dna_model.load_state_dict(base_model.state_dict())
     
     dna_model = train_incremental_dna(
         dna_model, train_df_new, df_valid, 
         n_user, n_item_old, n_item_new, 
-        n_know_old, n_know_new, Q_expanded
+        n_know_old, n_know_new, Q_expanded,
+        device=device
     )
     
     # Evaluate
-    dna_result_old = evaluate_model(dna_model, test_df_old, n_user, n_item_old + n_item_new, base_model)
-    dna_result_new = evaluate_model(dna_model, test_df_new, n_user, n_item_old + n_item_new)
+    dna_result_old = evaluate_model(dna_model, test_df_old, n_user, n_item_old + n_item_new, base_model=base_model, device=device)
+    dna_result_new = evaluate_model(dna_model, test_df_new, n_user, n_item_old + n_item_new, device=device)
     
-    print(f"Ours (DNA) - 旧测试集: AUC={dna_result_old['auc']:.4f}, RMSE={dna_result_old['rmse']:.4f}, ACC={dna_result_old['acc']:.4f}, F1={dna_result_old['f1']:.4f}, TMD={dna_result_old['tmd']:.4f}")
-    print(f"Ours (DNA) - 新测试集: AUC={dna_result_new['auc']:.4f}, RMSE={dna_result_new['rmse']:.4f}, ACC={dna_result_new['acc']:.4f}, F1={dna_result_new['f1']:.4f}")
+    print(f"Ours (DNA) - 旧测试集: AUC={dna_result_old['auc']:.4f}, RMSE={dna_result_old['rmse']:.4f}, "
+          f"ACC={dna_result_old['acc']:.4f}, F1={dna_result_old['f1']:.4f}, TMD={dna_result_old['tmd']:.4f}")
+    print(f"Ours (DNA) - 新测试集: AUC={dna_result_new['auc']:.4f}, RMSE={dna_result_new['rmse']:.4f}, "
+          f"ACC={dna_result_new['acc']:.4f}, F1={dna_result_new['f1']:.4f}")
     
     results.append({
         'Model': 'Ours (Dynamic DNA)',
@@ -668,10 +718,10 @@ def main():
         'TMD': dna_result_old['tmd']
     })
     
-    # 4. Ours (LoRA)
+    # 5. Ours (LoRA)
     print()
     print("=" * 80)
-    print("4. Ours (LoRA) 增量学习")
+    print("5. Ours (LoRA)")
     print("=" * 80)
     
     lora_model = GNCDM(
@@ -684,22 +734,24 @@ def main():
         Q_mat=Q_old,
         monotonicity_assumption=True,
         device=device
-    )
+    ).to(device)
     lora_model.load_state_dict(base_model.state_dict())
     
     lora_model = train_incremental_lora(
         lora_model, train_df_new, df_valid, 
         n_user, n_item_old, n_item_new, 
         n_know_old, n_know_new, Q_expanded,
-        rank=16
+        device=device, rank=16
     )
     
     # Evaluate
-    lora_result_old = evaluate_model(lora_model, test_df_old, n_user, n_item_old + n_item_new, base_model)
-    lora_result_new = evaluate_model(lora_model, test_df_new, n_user, n_item_old + n_item_new)
+    lora_result_old = evaluate_model(lora_model, test_df_old, n_user, n_item_old + n_item_new, base_model=base_model, device=device)
+    lora_result_new = evaluate_model(lora_model, test_df_new, n_user, n_item_old + n_item_new, device=device)
     
-    print(f"Ours (LoRA) - 旧测试集: AUC={lora_result_old['auc']:.4f}, RMSE={lora_result_old['rmse']:.4f}, ACC={lora_result_old['acc']:.4f}, F1={lora_result_old['f1']:.4f}, TMD={lora_result_old['tmd']:.4f}")
-    print(f"Ours (LoRA) - 新测试集: AUC={lora_result_new['auc']:.4f}, RMSE={lora_result_new['rmse']:.4f}, ACC={lora_result_new['acc']:.4f}, F1={lora_result_new['f1']:.4f}")
+    print(f"Ours (LoRA) - 旧测试集: AUC={lora_result_old['auc']:.4f}, RMSE={lora_result_old['rmse']:.4f}, "
+          f"ACC={lora_result_old['acc']:.4f}, F1={lora_result_old['f1']:.4f}, TMD={lora_result_old['tmd']:.4f}")
+    print(f"Ours (LoRA) - 新测试集: AUC={lora_result_new['auc']:.4f}, RMSE={lora_result_new['rmse']:.4f}, "
+          f"ACC={lora_result_new['acc']:.4f}, F1={lora_result_new['f1']:.4f}")
     
     results.append({
         'Model': 'Ours (LoRA)',
@@ -713,11 +765,11 @@ def main():
         'F1_new': lora_result_new['f1'],
         'TMD': lora_result_old['tmd']
     })
-
-    # 5. Full Replay Oracle (Theoretical Upper Bound)
+    
+    # 6. Full Replay Oracle
     print()
     print("=" * 80)
-    print("5. Full Replay Oracle (Theoretical Upper Bound)")
+    print("6. Full Replay Oracle (Upper Bound)")
     print("=" * 80)
     
     oracle_model = GNCDM(
@@ -730,21 +782,24 @@ def main():
         Q_mat=Q_old,
         monotonicity_assumption=True,
         device=device
-    )
+    ).to(device)
     oracle_model.load_state_dict(base_model.state_dict())
     
     oracle_model = train_incremental_full_replay_oracle(
         oracle_model, train_df_new, train_df_old, df_valid, 
         n_user, n_item_old, n_item_new, 
-        n_know_old, n_know_new, Q_expanded
+        n_know_old, n_know_new, Q_expanded,
+        device=device
     )
     
     # Evaluate
-    oracle_result_old = evaluate_model(oracle_model, test_df_old, n_user, n_item_old + n_item_new, base_model)
-    oracle_result_new = evaluate_model(oracle_model, test_df_new, n_user, n_item_old + n_item_new)
+    oracle_result_old = evaluate_model(oracle_model, test_df_old, n_user, n_item_old + n_item_new, base_model=base_model, device=device)
+    oracle_result_new = evaluate_model(oracle_model, test_df_new, n_user, n_item_old + n_item_new, device=device)
     
-    print(f"Oracle - 旧测试集: AUC={oracle_result_old['auc']:.4f}, RMSE={oracle_result_old['rmse']:.4f}, ACC={oracle_result_old['acc']:.4f}, F1={oracle_result_old['f1']:.4f}, TMD={oracle_result_old['tmd']:.4f}")
-    print(f"Oracle - 新测试集: AUC={oracle_result_new['auc']:.4f}, RMSE={oracle_result_new['rmse']:.4f}, ACC={oracle_result_new['acc']:.4f}, F1={oracle_result_new['f1']:.4f}")
+    print(f"Oracle - 旧测试集: AUC={oracle_result_old['auc']:.4f}, RMSE={oracle_result_old['rmse']:.4f}, "
+          f"ACC={oracle_result_old['acc']:.4f}, F1={oracle_result_old['f1']:.4f}, TMD={oracle_result_old['tmd']:.4f}")
+    print(f"Oracle - 新测试集: AUC={oracle_result_new['auc']:.4f}, RMSE={oracle_result_new['rmse']:.4f}, "
+          f"ACC={oracle_result_new['acc']:.4f}, F1={oracle_result_new['f1']:.4f}")
     
     results.append({
         'Model': 'Full Replay Oracle',
@@ -758,69 +813,25 @@ def main():
         'F1_new': oracle_result_new['f1'],
         'TMD': oracle_result_old['tmd']
     })
-
-    # 6. Naive Fine-Tuning (NFT) - Catastrophic Forgetting Control Group
-    print()
-    print("=" * 80)
-    print("6. Naive Fine-Tuning (NFT) - Catastrophic Forgetting Control")
-    print("=" * 80)
-    
-    nft_model = GNCDM(
-        n_user=n_user,
-        n_item=n_item_old,
-        n_know=n_know_old,
-        user_dim=32,
-        item_dim=32,
-        alpha=0.8,
-        Q_mat=Q_old,
-        monotonicity_assumption=True,
-        device=device
-    )
-    nft_model.load_state_dict(base_model.state_dict())
-    
-    nft_model = train_incremental_nft(
-        nft_model, train_df_new, df_valid, 
-        n_user, n_item_old, n_item_new, 
-        n_know_old, n_know_new, Q_expanded
-    )
-    
-    # Evaluate
-    nft_result_old = evaluate_model(nft_model, test_df_old, n_user, n_item_old + n_item_new, base_model)
-    nft_result_new = evaluate_model(nft_model, test_df_new, n_user, n_item_old + n_item_new)
-    
-    print(f"NFT - 旧测试集: AUC={nft_result_old['auc']:.4f}, RMSE={nft_result_old['rmse']:.4f}, ACC={nft_result_old['acc']:.4f}, F1={nft_result_old['f1']:.4f}, TMD={nft_result_old['tmd']:.4f}")
-    print(f"NFT - 新测试集: AUC={nft_result_new['auc']:.4f}, RMSE={nft_result_new['rmse']:.4f}, ACC={nft_result_new['acc']:.4f}, F1={nft_result_new['f1']:.4f}")
-    
-    results.append({
-        'Model': 'Naive FT (NFT)',
-        'AUC_old': nft_result_old['auc'],
-        'AUC_new': nft_result_new['auc'],
-        'RMSE_old': nft_result_old['rmse'],
-        'RMSE_new': nft_result_new['rmse'],
-        'ACC_old': nft_result_old['acc'],
-        'ACC_new': nft_result_new['acc'],
-        'F1_old': nft_result_old['f1'],
-        'F1_new': nft_result_new['f1'],
-        'TMD': nft_result_old['tmd']
-    })
-
-    # Print results table
-    print()
-    print("=" * 80)
-    print("增量学习实验结果")
-    print("=" * 80)
-    print()
-    
-    df = pd.DataFrame(results)
-    print(df.to_markdown(index=False, floatfmt=".4f"))
-    print()
     
     # Save results
-    output_path = os.path.join(SAVE_DIR, 'incremental_results.csv')
-    df.to_csv(output_path, index=False)
-    print(f"结果已保存到 {output_path}")
+    print()
     print("=" * 80)
+    print("保存结果...")
+    print("=" * 80)
+    
+    results_df = pd.DataFrame(results)
+    results_path = os.path.join(SAVE_DIR, 'incremental_results_a0910.csv')
+    results_df.to_csv(results_path, index=False)
+    
+    print(f"结果已保存到: {results_path}")
+    print()
+    
+    # Print summary table
+    print("=" * 80)
+    print("ASSIST 0910 增量学习实验结果汇总")
+    print("=" * 80)
+    print(results_df.to_string(index=False))
 
 if __name__ == "__main__":
     main()
-
