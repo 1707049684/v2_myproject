@@ -16,10 +16,10 @@ Python 3.10+。仓库里同时存在 cpython-310 和 cpython-313 的 pycache，�
 **增量学习主实验**（核心贡献，对比 Dynamic DNA / LoRA / Full-Replay / Naive 等 6 种策略）——在 `experiments/` 目录下运行：
 ```bash
 cd GNCDM/experiments
-python run_incremental.py             # Math1：严格拓扑二分(13旧/7新, ΔK={0,1,3,6})，random+user split 各跑一遍
+python run_incremental_math1.py       # Math1：严格拓扑二分(13旧/7新, ΔK={0,1,3,6})，random+user split 各跑一遍
 python run_incremental_a0910.py       # ASSIST a0910 数据集（17746 题，建议 GPU 服务器；ΔK 自动选最冷门概念）
 ```
-脚本用 `__file__` 定位 `gncdm_dir` 并 `sys.path.insert`，再 `from core.model import GNCDM`，因此可在任意 cwd 运行，但约定在 `experiments/` 下执行。`run_incremental_a0910.py` 复用 `run_incremental.py` 的 `run_experiment()`，仅换数据集维度/路径。结果写入 `GNCDM/incremental_result/incremental_results_{split}.csv`（math1：`_random_split`/`_user_split`；a0910：`_a0910_random_split`/`_a0910_user_split`）。按划分分派评测口径：random_split 走 `forward_using_buf` 无泄漏预测（论文 RQ2），user_split 走 `forward` 重构（论文 RQ1，test/valid 用户互斥）。**严禁给 forward 喂 `torch.zeros` 作答**（生成式诊断需真实作答向量，否则 θ/ψ 退化为常数）。
+脚本用 `__file__` 定位 `gncdm_dir` 并 `sys.path.insert`，再 `from core.model import GNCDM`，因此可在任意 cwd 运行，但约定在 `experiments/` 下执行。`run_incremental_a0910.py` 复用 `run_incremental_math1.py` 的 `run_experiment()`，仅换数据集维度/路径。结果写入 `GNCDM/incremental_result/incremental_results_{split}.csv`（math1：`_random_split`/`_user_split`；a0910：`_a0910_random_split`/`_a0910_user_split`）。按划分分派评测口径：random_split 走 `forward_using_buf` 无泄漏预测（论文 RQ2），user_split 走 `forward` 重构（论文 RQ1，test/valid 用户互斥）。**严禁给 forward 喂 `torch.zeros` 作答**（生成式诊断需真实作答向量，否则 θ/ψ 退化为常数）。
 
 **标准训练**（`core/run.py`）——`run.py` 用裸导入（`import model`、`from model_parser import parse_args`），且 `--save_path ./result/...`、`--training_config config/...` 都是相对路径。**必须从 `GNCDM/` 根目录用 `python core/run.py` 启动**：这样脚本目录 `core/` 自动进入 sys.path（满足裸导入），而 cwd 仍是 `GNCDM/`（满足相对路径）。参考 `GNCDM/scripts/*.sh` 取各数据集的超参。Math1 示例：
 ```bash

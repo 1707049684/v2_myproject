@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """增量学习主实验 —— ASSIST a0910 数据集（4163 users × 17746 items × 123 concepts）。
 
-复用 run_incremental.py 的管线（真实作答日志 + 双口径评测），仅替换数据集
+复用 run_incremental_math1.py 的管线（真实作答日志 + 双口径评测），仅替换数据集
 维度/路径/ΔK。random_split 走 forward_using_buf 预测（RQ2），user_split 走 forward
 重构（RQ1）。结果写 incremental_result/incremental_results_a0910_{random,user}_split.csv。
 
@@ -19,7 +19,7 @@ sys.path.insert(0, gncdm_dir)
 
 import numpy as np
 
-from run_incremental import set_seed, run_experiment
+from run_incremental_math1 import set_seed, run_experiment
 
 repo_root = os.path.dirname(gncdm_dir)
 DATA_DIR = os.path.join(repo_root, "data", "a0910")

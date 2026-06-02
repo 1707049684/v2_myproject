@@ -415,22 +415,25 @@ def main():
     repo_root = os.path.dirname(gncdm_dir)
     Q_path = os.path.join(DATA_DIR, "math1_Q_matrix.npy")
 
+    # 每个划分用 alpha 扫描得到的最优值（findings.md 第十八轮）：
+    #   random_split（预测口径）ACC 平台顶 → alpha=0.25
+    #   user_split（重构口径）名义最优 → alpha=0.70
     splits = [
-        ("random_split", "buf",
+        ("random_split", "buf", 0.25,
          os.path.join(DATA_DIR, "math1_train_0.8_0.2.csv"),
          os.path.join(DATA_DIR, "math1_valid_0.8_0.2.csv"),
          os.path.join(DATA_DIR, "math1_test_0.8_0.2.csv")),
-        ("user_split", "recon",
+        ("user_split", "recon", 0.70,
          os.path.join(repo_root, "data", "math1", "user_split", "train.csv"),
          os.path.join(repo_root, "data", "math1", "user_split", "valid.csv"),
          os.path.join(repo_root, "data", "math1", "user_split", "test.csv")),
     ]
     # math1：4209 users × 20 items × 11 concepts；ΔK={0,1,3,6}（冷门概念，旧题/新题=13/7）
-    for split_name, mode, tr, va, te in splits:
+    for split_name, mode, alpha, tr, va, te in splits:
         set_seed(42)  # 每个划分重置随机种子，保证可复现
         run_experiment(split_name, mode, tr, va, te, Q_path, device,
                        n_user=4209, n_item_total=20, n_know_total=11,
-                       new_concepts=[0, 1, 3, 6], alpha=0.8)
+                       new_concepts=[0, 1, 3, 6], alpha=alpha)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ disable-model-invocation: true
 步骤：
 1. `cd GNCDM/experiments`
 2. 根据数据集运行对应脚本：
-   - `math1` → `python run_incremental.py`
+   - `math1` → `python run_incremental_math1.py`
    - `a0910` → `python run_incremental_a0910.py`
 3. 两个脚本都自动跑 random_split 和 user_split 两个划分（random 走预测口径 forward_using_buf，user 走重构口径 forward）。实验默认用 GPU；无 GPU 时脚本会自动回落到 CPU（a0910 题量大，建议在 GPU 服务器上跑）。
 4. 结果写入 `GNCDM/incremental_result/incremental_results_{split}.csv`（math1：`_random_split` / `_user_split`；a0910：`_a0910_random_split` / `_a0910_user_split`）。运行完读取对应 CSV，用表格汇报各策略在旧/新测试集上的 AUC、RMSE、ACC、F1 以及 TMD（旧知识漂移）。
