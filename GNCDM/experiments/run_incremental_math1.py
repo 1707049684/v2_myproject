@@ -416,14 +416,15 @@ def main():
     Q_path = os.path.join(DATA_DIR, "math1_Q_matrix.npy")
 
     # 每个划分用 alpha 扫描得到的最优值（findings.md 第十八轮）：
-    #   random_split（预测口径）ACC 平台顶 → alpha=0.25
+    #   random_split（预测口径）Base ACC_old 顶点 → alpha=0.20
+    #   （0.05 步长扫描 sweep_base_alpha_random.py：Base test ACC_old 在 0.20 见顶 0.7293）
     #   user_split（重构口径）名义最优 → alpha=0.70
     splits = [
-        ("random_split", "buf", 0.25,
+        ("math1_random_split", "buf", 0.20,
          os.path.join(DATA_DIR, "math1_train_0.8_0.2.csv"),
          os.path.join(DATA_DIR, "math1_valid_0.8_0.2.csv"),
          os.path.join(DATA_DIR, "math1_test_0.8_0.2.csv")),
-        ("user_split", "recon", 0.70,
+        ("math1_user_split", "recon", 0.70,
          os.path.join(repo_root, "data", "math1", "user_split", "train.csv"),
          os.path.join(repo_root, "data", "math1", "user_split", "valid.csv"),
          os.path.join(repo_root, "data", "math1", "user_split", "test.csv")),

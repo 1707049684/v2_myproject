@@ -1,3 +1,28 @@
+# -*- coding: utf-8 -*-
+"""DER++ 持续学习基线（Buzzega et al., NeurIPS 2020），用于和六大策略对比。
+
+运行（需先装 avalanche；务必在 GNCDM/ 根目录执行，脚本会把 experiments/ 加入 sys.path 复用主实验划分）：
+    pip install avalanche-lib
+    cd GNCDM
+    python math1_der_baseline.py
+
+划分与口径（已对齐主实验，random_split 预测口径）：
+- 复用 run_incremental_math1.strict_bipartition（ΔK={0,1,3,6} → 旧题 13 / 新题 7），
+  并使用既有 math1_train/test_0.8_0.2.csv → Task0/Task1 的旧/新任务定义与测试样本
+  与六策略 incremental_results_math1_random_split.csv 逐行一致。
+- 2 阶段 task stream：Task0=旧题基线、Task1=新题增量；学完 Task1 后回测旧题得 *_old 指标。
+
+可比性边界（重要，避免误读）：
+- AUC/ACC/F1/RMSE：apples-to-apples，可直接与主表对比（同划分、同测试行、同预测口径）。
+- TMD：本基线骨干为 CognitiveBackbone（Embedding+MLP，非 G-NCDM），无概念空间 θ，
+  TMD 在 64 维学生 embedding 空间度量，**绝对量级不可与 G-NCDM 的 7 维概念 θ TMD 直接比**，
+  仅可用于定性/相对趋势（DER 有漂移、非零，对照 DNA 的 TMD=0）。
+- 骨干刻意未对齐 G-NCDM（仅作"被认可的顶会 CL 基线"对照），论文不强调 DER 跑在 G-NCDM 架构上。
+"""
+import os
+import sys
+import math
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,6 +36,16 @@ from avalanche.training.supervised import DER
 
 # 引入认知诊断核心评测算子
 from sklearn.metrics import roc_auc_score, mean_squared_error, accuracy_score, f1_score
+
+# 复用主实验的「严格拓扑二分」作为唯一划分真源，保证 DER 的旧/新任务定义、测试样本
+# 与 run_incremental_math1.py 的六策略逐行一致（否则数字不可比）。
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiments"))
+import run_incremental_math1 as R
+
+# 与主实验一致的数据集常量（math1：20 题 / 11 概念，ΔK={0,1,3,6} → 旧题 13 / 新题 7）
+NEW_CONCEPTS = [0, 1, 3, 6]
+N_ITEM_TOTAL = 20
+N_KNOW_TOTAL = 11
 
 # ==========================================
 # 1. 认知诊断专用的基础骨干网络 (Backbone)
@@ -73,58 +108,67 @@ def evaluate_cd_metrics(model, test_dataset, device):
     return auc, rmse, acc, f1
 
 # ==========================================
-# 3. 数据流装载：严格执行 2/3(旧) 与 1/3(新) 的物理隔离划分
+# 3. 数据流装载：复用主实验「严格拓扑二分」(ΔK={0,1,3,6}) 并使用既有 train/test 文件
+#    —— 旧/新任务定义与测试样本与 run_incremental_math1.py 六策略逐行一致（random_split 口径）。
 # ==========================================
-def load_math1_strict_partition(csv_path=r"C:\Users\Administrator\WPSDrive\1657690587\WPS企业云盘\深圳大学\我的企业文档\Generative-CD-main\GNCDM\data\math1_train_0.8_0.2.csv"):
-    print(f">>> 正在从 {csv_path} 加载真实科研数据...")
-    df = pd.read_csv(csv_path)
-    
-    user_col = 'user_id' if 'user_id' in df.columns else 'student_id'
-    item_col = 'item_id' if 'item_id' in df.columns else 'question_id'
-    score_col = 'score' if 'score' in df.columns else 'correct'
-    
-    # 1. 提取全局唯一题目集合，并进行随机打乱（消除人为排序偏误）
-    unique_items = df[item_col].unique()
-    np.random.seed(42) # 固定随机种子保证每次跑出来的切分一致
-    np.random.shuffle(unique_items)
-    
-    # 2. 严格按 2/3 和 1/3 划分题目集合
-    split_idx = int(len(unique_items) * (2/3))
-    old_items_set = set(unique_items[:split_idx])
-    new_items_set = set(unique_items[split_idx:])
-    print(f">>> 题目拓扑切分完成: 旧题目(Task 0) = {len(old_items_set)} 个, 新题目(Task 1) = {len(new_items_set)} 个")
+def load_math1_strict_partition():
+    Q_path = os.path.join(R.DATA_DIR, "math1_Q_matrix.npy")
+    train_path = os.path.join(R.DATA_DIR, "math1_train_0.8_0.2.csv")
+    test_path = os.path.join(R.DATA_DIR, "math1_test_0.8_0.2.csv")
+    print(f">>> 加载 {train_path} / {test_path}（random_split）")
 
-    # 3. 剥离数据框
-    df_old = df[df[item_col].isin(old_items_set)]
-    df_new = df[df[item_col].isin(new_items_set)]
-    
+    df_train = pd.read_csv(train_path)
+    df_test = pd.read_csv(test_path)
+    Q_mat = np.load(Q_path)
+
+    # 严格拓扑二分（与主实验同一函数、同一 ΔK）：旧题在前、新题在后；旧题绝不依赖新概念。
+    Q_mat, item_id_map, n_item_old, n_know_old = R.strict_bipartition(Q_mat, NEW_CONCEPTS)
+    df_train = R.remap_items(df_train, item_id_map)
+    df_test = R.remap_items(df_test, item_id_map)
+    n_item_new = N_ITEM_TOTAL - n_item_old
+    print(f">>> 严格拓扑二分(同主实验, ΔK={NEW_CONCEPTS}): "
+          f"旧题(Task 0)={n_item_old} 新题(Task 1)={n_item_new}, 旧概念={n_know_old}")
+
+    # 双阶段任务流：Task0=旧题(item_id<n_item_old)，Task1=新题(item_id>=n_item_old)。
+    # 训练/测试沿用既有 train/test 文件的行（不再脚本内重切），保证与主表同口径。
     train_datasets, test_datasets = [], []
-    
-    # 4. 构建 Avalanche 的双阶段任务流
-    for task_df in [df_old, df_new]:
-        x_task = torch.tensor(task_df[[user_col, item_col]].values, dtype=torch.long)
-        y_task = torch.tensor(task_df[score_col].values, dtype=torch.long)
-        
-        # 任务内的 8:2 随机划分 (Train / Test)
-        indices = np.random.permutation(len(x_task))
-        split_point = int(len(x_task) * 0.8)
-        train_idx, test_idx = indices[:split_point], indices[split_point:]
-        
-        train_datasets.append(TensorDataset(x_task[train_idx], y_task[train_idx]))
-        test_datasets.append(TensorDataset(x_task[test_idx], y_task[test_idx]))
+    for lo, hi in [(0, n_item_old), (n_item_old, N_ITEM_TOTAL)]:
+        tr = df_train[(df_train["item_id"] >= lo) & (df_train["item_id"] < hi)]
+        te = df_test[(df_test["item_id"] >= lo) & (df_test["item_id"] < hi)]
+        x_tr = torch.tensor(tr[["user_id", "item_id"]].values, dtype=torch.long)
+        y_tr = torch.tensor(tr["score"].values, dtype=torch.long)
+        x_te = torch.tensor(te[["user_id", "item_id"]].values, dtype=torch.long)
+        y_te = torch.tensor(te["score"].values, dtype=torch.long)
+        train_datasets.append(TensorDataset(x_tr, y_tr))
+        test_datasets.append(TensorDataset(x_te, y_te))
 
-    return dataset_benchmark(train_datasets=train_datasets, test_datasets=test_datasets)
+    benchmark = dataset_benchmark(train_datasets=train_datasets, test_datasets=test_datasets)
+    # embedding 尺寸按真实 id 取（覆盖 train+test 出现的最大 id）
+    num_students = int(max(df_train["user_id"].max(), df_test["user_id"].max())) + 1
+    # 旧任务参与的学生集合（仅这些学生在 Task0 学过旧知识 → 用于衡量旧表征漂移 TMD）
+    old_user_ids = torch.tensor(
+        df_train[df_train["item_id"] < n_item_old]["user_id"].unique(), dtype=torch.long)
+    meta = {
+        "n_item_old": n_item_old,
+        "n_know_old": n_know_old,
+        "num_students": num_students,
+        "num_items": N_ITEM_TOTAL,
+        "old_user_ids": old_user_ids,
+    }
+    return benchmark, meta
 
 # ==========================================
 # 4. 核心训练流与决战数据提取
 # ==========================================
 def run_der_baseline():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    num_tasks = 2 # 严格锁定为 2 阶段：[0: 2/3旧题基线], [1: 1/3新题增量]
-    
-    benchmark = load_math1_strict_partition()
-    
-    model = CognitiveBackbone(num_students=5000, num_items=5000).to(device)
+
+    benchmark, meta = load_math1_strict_partition()
+
+    # embedding 尺寸按真实数据取（math1：4209 用户 / 20 题），不再硬编码 5000
+    model = CognitiveBackbone(num_students=meta["num_students"],
+                              num_items=meta["num_items"]).to(device)
+    embed_dim = model.student_emb.weight.shape[1]
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss()
 
@@ -171,23 +215,24 @@ def run_der_baseline():
     auc_old, rmse_old, acc_old, f1_old = evaluate_cd_metrics(model, old_ds, device)
     
     # =========================================================================
-    # 3. 核心计算：基于几何流形欧氏距离的 TMD (Theoretical Maximum Disruption)
+    # 3. TMD（Trait Manifold Drift）：旧表征在学完新任务后的漂移
+    # -------------------------------------------------------------------------
+    # 主实验（G-NCDM）的 TMD 比较的是**概念空间的诊断态 θ**（Theta_buf 的前 K_old 个概念维）。
+    # CognitiveBackbone 没有概念对齐的 θ，只有 64 维学生 embedding，其前 7 维并非 7 个知识概念，
+    # 故**不能**切 [:, :7] 充当 θ_old（原实现的做法是错误的）。
+    # 这里改为度量「学生 trait embedding」在 **Task0 学过旧知识的学生** 上、**整维度**、按 √dim 归一化
+    # 的漂移 —— 与 G-NCDM TMD「旧表征学完新任务后移动多少」概念一致。
+    # ⚠️ 注意：两者不在同一表征空间（概念 θ∈[0,1]^7 vs 隐 embedding∈R^64），TMD 的**绝对量级不可直接对比**，
+    #    可比的是**相对趋势**（DER 是否比 Naive-FT 漂移小、是否仍 >0 而非 DNA 的 0）。
     # =========================================================================
-    # 获取增量学习收敛后的特质向量 (T1 状态的 \hat{\theta}_{i})
     final_student_emb = model.student_emb.weight.data.cpu()
-    
-    # 严格对齐 Ours (DynamicDNA) 的 TMD 计算公式：
-    # TMD = mean(||theta_old - theta_new[:K_old]||_2 / sqrt(K_old))
-    K_old = 7  # math1 旧知识维度
-    final_student_emb_old_dim = final_student_emb[:, :K_old]
-    baseline_student_emb_old_dim = baseline_student_emb[:, :K_old]
-    tmd_euclidean_distances = torch.norm(baseline_student_emb_old_dim - final_student_emb_old_dim, p=2, dim=1)
-    tmd = (tmd_euclidean_distances / np.sqrt(K_old)).mean().item()
-    # =========================================================================
+    old_ids = meta["old_user_ids"]
+    drift = torch.norm(baseline_student_emb[old_ids] - final_student_emb[old_ids], p=2, dim=1)
+    tmd = (drift / math.sqrt(embed_dim)).mean().item()
 
     # 打印最终可直接填入论文的 Markdown 表格
     print("\n请直接将以下数据复制填入你的论文表格中：\n")
-    print("| Model | AUC_old | AUC_new | RMSE_old | RMSE_new | ACC_old | ACC_new | F1_old | F1_new | TMD (Euclidean Distance) |")
+    print("| Model | AUC_old | AUC_new | RMSE_old | RMSE_new | ACC_old | ACC_new | F1_old | F1_new | TMD (embedding-space, 量级不可与 G-NCDM 直接比) |")
     print("|---|---|---|---|---|---|---|---|---|---|")
     print(f"| DER++ | {auc_old:.4f} | {auc_new:.4f} | {rmse_old:.4f} | {rmse_new:.4f} | {acc_old:.4f} | {acc_new:.4f} | {f1_old:.4f} | {f1_new:.4f} | {tmd:.4f} |")
     print("\n" + "="*60)

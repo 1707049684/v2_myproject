@@ -21,6 +21,10 @@ python run_incremental_a0910.py       # ASSIST a0910 数据集（17746 题，建
 ```
 脚本用 `__file__` 定位 `gncdm_dir` 并 `sys.path.insert`，再 `from core.model import GNCDM`，因此可在任意 cwd 运行，但约定在 `experiments/` 下执行。`run_incremental_a0910.py` 复用 `run_incremental_math1.py` 的 `run_experiment()`，仅换数据集维度/路径。结果写入 `GNCDM/incremental_result/incremental_results_{split}.csv`（math1：`_random_split`/`_user_split`；a0910：`_a0910_random_split`/`_a0910_user_split`）。按划分分派评测口径：random_split 走 `forward_using_buf` 无泄漏预测（论文 RQ2），user_split 走 `forward` 重构（论文 RQ1，test/valid 用户互斥）。**严禁给 forward 喂 `torch.zeros` 作答**（生成式诊断需真实作答向量，否则 θ/ψ 退化为常数）。
 
+**alpha（每划分单独取最优）**：math1 `random_split=0.20`（0.05 步长扫 Base test ACC_old，0.20 见顶 0.7293，脚本 `experiments/sweep_base_alpha_random.py`）、`user_split=0.70`（findings 第十八轮）；a0910=0.9（对齐原作者/论文）。改 alpha 在 `run_incremental_math1.py` 的 `main()` 里 splits 元组。
+
+**口径易混点**：增量实验的 `Base` **只在旧题子集上训练+评测**（math1 是 13/20 题、7/11 概念），因此它的 ACC（math1 random≈0.72）**不能**直接对标论文「完整模型」数字（完整 20 题 G-NCDM 重构 user-split≈0.74~0.79，论文 0.749）。差距来自「只用旧子集」，非退化。`Ours(DNA/LoRA)` 旧任务恒等于 `Base`、TMD=0（架构隔离零遗忘）是预期结果，不是 bug。
+
 **标准训练**（`core/run.py`）——`run.py` 用裸导入（`import model`、`from model_parser import parse_args`），且 `--save_path ./result/...`、`--training_config config/...` 都是相对路径。**必须从 `GNCDM/` 根目录用 `python core/run.py` 启动**：这样脚本目录 `core/` 自动进入 sys.path（满足裸导入），而 cwd 仍是 `GNCDM/`（满足相对路径）。参考 `GNCDM/scripts/*.sh` 取各数据集的超参。Math1 示例：
 ```bash
 cd GNCDM
