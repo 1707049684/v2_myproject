@@ -503,3 +503,52 @@ a0910 `new_user_split` **用户完全互斥**（test∩train=0，test 499 用户
 - 新建 **`GNCDM/docs/DNA_vs_LoRA.md`**：基于 `core/model.py` 实代码，讲清 `Ours(DNA)` 与 `Ours(LoRA)` 的唯一差异在「学新分支」，保旧机制相同（冻结+零填充，TMD=0）。
 - 核心论点:DNA 诊断 ψ 的新分支首层 `Linear(n_user, ΔK)` 参数量 `O(n_user·ΔK)` 随用户规模膨胀；LoRA 复用旧隐层（`n_know` 维）+ rank-4 适配器，参数 `O(r·(n_know+ΔK))` 与 `n_user` 解耦。→ **大数据集(a0910) LoRA 学新更优（new AUC 0.740>0.736）；小数据集(math1) DNA 略占优，排名翻转**。
 - 红线:LoRA 优势是「学新更好」非「保旧更好」（保旧两者逐位相等）。
+
+## 🆕 第二十三轮：C-LoRA 持续学习基线（a0910 random_split，2026-06-05）
+目标：再补第三个 CL 基线 **C-LoRA（Continual LoRA + 权重级软正交惩罚）**，凑齐 EWC/DER/C-LoRA 三基线的 stability-plasticity 前沿。正交惩罚 `L_ortho = Σ‖W_base.detach()@ΔW^T‖_F²`，增量阶段 `L_total = L_CE + λ_ortho·L_ortho`，扫 λ∈[0,1,10,100,1000,10000]，rank=8/alpha=16，自写 LoRALinear（B 零初始化），无 avalanche/peft。
+
+构建了两版（两脚本均已本地冒烟测试）：
+- **方案一 `GNCDM/a0910_clora_baseline.py`**：CognitiveBackbone（Embedding+MLP），LoRA 挂 MLP 3 层，embedding 可训。
+- **方案二 `GNCDM/a0910_gncdm_clora_baseline.py`**：LoRA 挂真·G-NCDM 的 f_nn/g_nn/ncd（8 层），同主表口径、TMD 在概念 θ 空间。
+
+### 用户决定：**方案一 = 正式 C-LoRA 基线**；方案二退化、存档为负结果。
+
+### 方案一结果（采用）—— 干净的权衡前沿
+| λ_ortho | AUC_old | AUC_new | ACC_old | ACC_new | TMD\* |
+|---|---|---|---|---|---|
+| 0 | 0.595 | **0.703** | 0.594 | 0.676 | 0.143 |
+| 1 | 0.648 | 0.676 | 0.638 | 0.655 | 0.145 |
+| 10 | 0.647 | 0.679 | 0.638 | 0.658 | 0.144 |
+| 100 | 0.672 | 0.666 | 0.659 | 0.652 | 0.135 |
+| 1000 | 0.699 | 0.668 | 0.667 | 0.643 | 0.133 |
+| 10000 | **0.700** | 0.667 | 0.677 | 0.642 | 0.132 |
+
+- 标准 stability-plasticity：λ↑→AUC_old 单调升(0.595→0.700)、AUC_new 降(0.703→0.667)，与 EWC sweep 同族；λ=0 可塑性(new 0.703)甚至强于 EWC(0.680)。合格强基线，非稻草人。
+- 红线同 EWC/DER：① 骨干 CognitiveBackbone≠G-NCDM，勿称纯策略胜出；② TMD\* 为 embedding 空间，不可与概念 θ TMD(0/0.022) 比大小；③ 仅 random_split。
+
+### 方案二退化（存档，未采用）—— 两个根因
+| λ | AUC_old | AUC_new | ACC_new | TMD |
+|---|---|---|---|---|
+| 0 | 0.696 | 0.653 | 0.684 | 0.032 |
+| 1 | 0.706 | **0.497** | 0.637 | 0.0044 |
+| ≥10 | 0.73~0.736 | 0.53~0.556 | 0.637(逐位相同) | 0.0043(钉死) |
+
+- **根因 A（悬崖）**：`g_nn[0]=Linear(n_user=4163,123)` 的 `W_base` 巨阵使 `L_ortho` 尺度爆炸，λ=1 惩罚梯度即碾压 CE → ΔW 被钉到 0、模型退回冻结基座（λ≥1 的 ACC/F1 逐位相同、AUC_new<0.5 印证）。真正过渡区间在 (0,1)，sweep 全落在悬崖右侧。
+- **根因 B（天花板）**：聚合矩阵 `theta_agg_mat/psi_agg_mat` 被排除 LoRA 且 Phase2 冻结 → 新概念 83 列停在 xavier 随机初始化、从未训练 → 连 λ=0 的 AUC_new 也只有 0.653。
+- **潜在论文论点**：C-LoRA 的「冻结基座+小正交增量」为分布漂移而设，G-NCDM 新概念需从零学新维度，正交约束反而阻止学习 → 只有 Ours 专用新分支能处理。但 AUC_new≈0.5 太像 bug，若要写需先「最佳努力」调校（细化 λ∈(0,1)、归一化惩罚、解冻新概念聚合列）——**已搁置，待定**。
+
+## 🆕 第二十四轮：三基线总表 + DER canonical 化（a0910 random_split，2026-06-05）
+- 新建 **`GNCDM/incremental_result/common_cl_baselines_a0910_random_split.csv`**：EWC / DER++ / C-LoRA(方案一) 九列全指标(AUC/RMSE/ACC/F1 × old/new + TMD)各一行。EWC/C-LoRA 取 **λ=10000**（`avg(AUC_old,AUC_new)` 最高的均衡点）；DER++ 单配置。
+
+| Method | AUC_old | AUC_new | RMSE_old | RMSE_new | ACC_old | ACC_new | F1_old | F1_new | TMD\* |
+|---|---|---|---|---|---|---|---|---|---|
+| EWC (λ=10000) | 0.7023 | 0.6690 | 0.5208 | 0.5333 | 0.6753 | 0.6509 | 0.7536 | 0.7294 | 0.0883 |
+| DER++ (mem=5000) | 0.7171 | 0.6673 | 0.4480 | 0.4709 | 0.6997 | 0.6631 | 0.7834 | 0.7557 | 0.0247 |
+| C-LoRA (λ=10000) | 0.6999 | 0.6674 | 0.5201 | 0.5339 | 0.6769 | 0.6425 | 0.7555 | 0.7187 | 0.1320 |
+
+- **DER++ canonical 更新**：采用本轮 run（AUC_new 0.6673），**取代第二十轮 v3 的 0.706**。差异来源：DER 脚本此前**漏设 set_seed**（reservoir 采样/初始化/shuffle 非确定）→ run 间跳动。**已补 `set_seed(42)`** 到 `a0910_der_baseline.py`（对齐 EWC/主实验）。
+- **泄露排查（用户问 ACC_new 是否泄露 test）**：否。`test_new` 正类(score=1)占比=**0.6371**，DER++ ACC_new=0.6631 仅高出基线 2.6pt、F1_new 甚至略低于"全猜正类"的 0.778；而 AUC_new=0.667 紧贴随机线 → 若真泄露 AUC 会≈1.0。**高 ACC/F1 是类别不平衡地板效应，非泄露**。推论：这批基线**别看重 ACC/F1，信 AUC/RMSE**。
+- 读表：**DER++ 综合最强**（AUC_old/RMSE/ACC/F1 全面领先，RMSE 0.45 vs 正则法 0.52，replay+概率更校准）；三者 AUC_new 接近(0.667~0.669)。TMD\* 三者各自 embedding 空间，不可比绝对量级、更不可与 Ours 概念 θ TMD=0 比。
+
+### 待办
+- 帕累托前沿可视化（完整 EWC/C-LoRA sweep 各 6 点 + DER 单点 + Ours），并把本总表与 Ours 行合并出论文主对比表。

@@ -256,8 +256,12 @@ def run_one_lambda(base_state, base_theta_ref, meta, lambda_ortho, device):
     r_old = evaluate_buf(model, meta["test_old"], device)
     r_new = evaluate_buf(model, meta["test_new"], device)
 
-    # TMD：旧概念 θ 在增量前后的漂移（概念空间，量级可与 G-NCDM 概念 θ TMD 直接比）
-    tmd = calculate_tmd(base_theta_ref.to(device), model.get_Theta_buf().to(device), meta["n_know_old"])
+    # TMD：旧概念 θ 在增量前后的漂移（概念空间，量级可与 G-NCDM 概念 θ TMD 直接比）。
+    # calculate_tmd 约定 theta_old 已是 K_old 宽（它内部只把 theta_new 切到 :K_old），而本版 Base
+    # 是全维(n_know_total)，故先把参照 θ 切到旧概念列 [:, :n_know_old] 再比对。
+    k_old = meta["n_know_old"]
+    tmd = calculate_tmd(base_theta_ref[:, :k_old].to(device),
+                        model.get_Theta_buf().to(device), k_old)
 
     return {
         "ortho_lambda": lambda_ortho,

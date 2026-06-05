@@ -59,6 +59,13 @@ DER_ALPHA = 0.5           # DER++ logit 蒸馏权重（加强旧表征保持）
 DER_BETA = 0.5            # DER++ replay 标签 CE 权重
 
 
+def set_seed(seed=42):
+    """固定随机种子以保证可复现（对齐 EWC/主实验；DER 此前缺失导致 run 间结果跳动）。"""
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
 # ==========================================
 # 内联工具函数（原 run_incremental_math1 / a0910 的同名实现，逐字搬入以自包含）
 # ==========================================
@@ -207,6 +214,7 @@ def load_a0910_strict_partition():
 # 核心训练流（按验证集 ACC 早停）与决战数据提取
 # ==========================================
 def run_der_baseline():
+    set_seed(42)   # 可复现：固定随机种子（DER reservoir 采样 / 初始化 / shuffle）
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"device = {device}")
     if device.type == "cpu":
