@@ -434,3 +434,72 @@ main() 按划分采用第十八轮扫描的最优 alpha：**random_split alpha=0
   方案B：把聚合矩阵也做成「旧列冻结 buffer + 新列独立 Parameter」的侧分支结构（与 f_nn_new 一致），名字带 'new' 以便统一选择；
   方案C：最省事——优化器加入 theta_agg_mat/psi_agg_mat，配合 backward hook 清零旧列梯度。
 - 验证：修好后 DNA 应同时保旧（≈0.60）且学新（向 0.85 靠拢），TMD 仍小。
+
+## 🆕 第二十轮：DER++ 顶会 CL 基线（2026-06-04）
+目标：给六策略加一个**被认可的顶会持续学习基线** DER++（Buzzega et al., NeurIPS 2020，avalanche 实现）做对比。
+用户决定：**保留简单骨干 `CognitiveBackbone`（Embedding+MLP，非 G-NCDM）**，论文不强调 DER 跑在 G-NCDM 上。
+
+### 原 `GNCDM/math1_der_baseline.py` 的三个问题（已修 2、3，按用户要求不动 1）
+1. **骨干不同**（CognitiveBackbone≠G-NCDM）→ 混淆"策略 vs 骨干"。**按用户要求保留**，论文只声称"相同划分/口径下 Ours 优于 DER++"，不声称纯策略胜出。
+2. **划分不同**：原脚本按题目随机 2/3-1/3 切、且脚本内重切 train/test，与主实验"按概念 strict_bipartition"不一致 → **已修**：改用 `strict_bipartition` + 既有 train/test 文件，旧/新任务定义与测试样本与主表逐行一致。
+3. **TMD 算错**：原用 `student_emb[:, :7]` 冒充概念 θ（embedding 前 7 维≠7 个概念）→ **已修**：改为学生 embedding 整维度、按 √dim 归一、仅旧任务学生的漂移；**并明确标注 embedding 空间 TMD 量级不可与 G-NCDM 概念 θ TMD 直接比，只看相对趋势**。
+
+### a0910 单文件脚本 `GNCDM/a0910_der_baseline.py`（自包含）
+- 用户要求"全写在一个脚本里"：把 strict_bipartition/remap_items/auto_new_concepts/CognitiveBackbone/evaluate_cd_metrics 与维度常量**全部内联**，不再 import run_incremental_*（之前跨模块 import 报 `AttributeError: N_ITEM` 也随之消失）。
+- 划分：`auto_new_concepts(Q,0.34)` → 新概念 83/123、旧题 11540/新题 6206，与 run_incremental_a0910 一致。
+- 评测口径：random_split 预测（test 用户与训练共享）。
+
+### 训练协议（关键，论文需写明）
+- DER++ 超参抽成顶部常量：`MEM_SIZE=5000`（原 500 太小）、`DER_ALPHA=0.5`（logit 蒸馏，原 0.1）、`DER_BETA=0.5`、`EMBED_DIM=64`、`LR=1e-3`。
+- **早停**：DER 内部 `train_epochs=1`，外层循环最多 `TRAIN_EPOCHS=25`、按 **验证集 ACC** 早停 `patience=5`、保留最优快照（对齐主实验 train_real "保留最优快照"）。Task0 监控旧题 valid，Task1 监控旧+新合并 valid。
+  - 实现注意：用"train_epochs=1 + 外层多次调用 cl_strategy.train(experience)"实现 per-epoch 早停，**非 avalanche 官方 EarlyStoppingPlugin**；DER buffer 会在同一任务多次 reservoir 更新（自限，实测正常）。若异常可换官方 plugin。
+
+### a0910 random_split 三版演进（早停是关键）
+| 版本 | AUC_old | AUC_new | RMSE | TMD* | 说明 |
+|---|---|---|---|---|---|
+| v1 (mem=500,10ep) | 0.659 | 0.688 | 0.52 | 0.094 | buffer 太小 |
+| v2 (mem=5000,25ep 无早停) | 0.703 | 0.678 | 0.53 | 0.134 | 过拟合（新题掉、RMSE 高） |
+| **v3 (mem=5000,25ep+早停)** | **0.716** | **0.706** | **0.45** | **0.048** | 早停生效，最终采用 |
+
+### v3 vs 六策略（a0910 random_split）
+| 策略 | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|
+| Ours (DNA) | 0.744 | 0.736 | 0.730 | 0.716 | **0** |
+| Ours (LoRA) | 0.744 | 0.740 | 0.730 | 0.723 | **0** |
+| Full Replay Oracle | 0.748 | 0.736 | 0.731 | 0.723 | 0.022 |
+| Naive FT | 0.701 | 0.746 | 0.689 | 0.724 | 0.022 |
+| **DER++ (v3)** | **0.716** | **0.706** | **0.694** | **0.687** | **0.048\*** |
+
+**结论**：DER++ 现为合格强基线（旧 0.716 介于 NFT 0.701 与 Ablated 0.719 间，非稻草人）；但 **Ours(DNA/LoRA) 在保旧(0.744)与学新(0.736/0.740)两端均优于 DER++，且 TMD=0 零遗忘**，叙事可信成立。
+**两条红线**：① 骨干口径不同（差距含骨干因素，勿称纯策略胜出）；② TMD* 为 embedding 空间，不可与概念 θ TMD(0/0.022) 比大小，仅可说"DER++ TMD>0、未达零遗忘"。
+
+### user_split 障碍（待解决）
+a0910 `new_user_split` **用户完全互斥**（test∩train=0，test 499 用户训练全未见）。transductive 的 CognitiveBackbone 对 test 用户 `student_emb` 未训练 → 直接跑产出**无效数值**。
+可选：A) 加 test 时**冷启动**（冻结 item_emb+MLP，对每个 test 用户用其自身作答拟合 student_emb 再重构，类比 G-NCDM recon 口径，但属附加协议需在论文说明）；B) DER 只报 random_split，user_split 不适用 transductive 基线。**待用户拍板。**
+
+## 🆕 第二十一轮：EWC λ 扫描基线（a0910 random_split，2026-06-05）
+目标：再补一个经典正则化型持续学习基线 **EWC**（Kirkpatrick et al., PNAS 2017，avalanche 实现），与 DER++ 同骨干（`CognitiveBackbone`）、同划分、同口径，做正则化系数 λ 扫描。脚本：`GNCDM/a0910_ewc_baseline.py`（自包含，结构对齐 a0910_der_baseline.py）。服务器跑出 `ewc_lambda_sweep_a0910_random_split.csv`（6 个 λ 点）。
+
+### λ 扫描结果（a0910 random_split）
+| ewc_lambda | AUC_old | AUC_new | ACC_old | ACC_new | TMD* |
+|---|---|---|---|---|---|
+| 0 | 0.628 | 0.680 | 0.619 | 0.659 | 0.113 |
+| 1 | 0.631 | 0.683 | 0.620 | 0.655 | 0.113 |
+| 10 | 0.640 | **0.684** | 0.627 | 0.660 | 0.117 |
+| 100 | 0.660 | 0.682 | 0.638 | 0.658 | 0.123 |
+| 1000 | 0.687 | 0.670 | 0.663 | 0.651 | 0.115 |
+| 10000 | **0.702** | 0.669 | **0.675** | 0.651 | **0.088** |
+
+### 结论
+- 标准 **stability-plasticity 权衡曲线**：λ↑ → `AUC_old` 单调升（0.628→0.702，保旧↑）；`AUC_new` 在 λ=10 见顶 0.684 后回落（可塑性被压）；λ=10000 时 TMD* 降到 0.088（强正则=低漂移）。
+- 拐点在 **λ=100→1000** 之间从"偏新"翻到"偏旧"。**甜点 λ=100**（old 0.660 / new 0.682 均衡）；**最有利旧任务 λ=10000**（old 0.702、TMD* 最低）。
+- 即便 λ=10000，EWC `AUC_old=0.702` 仍**未达** Ours(DNA/LoRA) 0.744、更非 TMD=0：正则化方法只能逼近、压不到零遗忘——对比点成立。
+- ⚠️ 红线同 DER++：① 骨干口径与 G-NCDM 不同，勿称纯策略胜出；② TMD* 为 embedding 空间，仅可说"EWC TMD>0、未达零遗忘"，不可与概念 θ TMD(0/0.022) 比大小。
+
+### 待办
+- user_split 同样受 transductive 障碍限制（test 用户 student_emb 未训练），与 DER++ 一并待拍板冷启动协议或只报 random_split。
+
+## 🆕 第二十二轮：DNA vs LoRA 机制文档（2026-06-05）
+- 新建 **`GNCDM/docs/DNA_vs_LoRA.md`**：基于 `core/model.py` 实代码，讲清 `Ours(DNA)` 与 `Ours(LoRA)` 的唯一差异在「学新分支」，保旧机制相同（冻结+零填充，TMD=0）。
+- 核心论点:DNA 诊断 ψ 的新分支首层 `Linear(n_user, ΔK)` 参数量 `O(n_user·ΔK)` 随用户规模膨胀；LoRA 复用旧隐层（`n_know` 维）+ rank-4 适配器，参数 `O(r·(n_know+ΔK))` 与 `n_user` 解耦。→ **大数据集(a0910) LoRA 学新更优（new AUC 0.740>0.736）；小数据集(math1) DNA 略占优，排名翻转**。
+- 红线:LoRA 优势是「学新更好」非「保旧更好」（保旧两者逐位相等）。

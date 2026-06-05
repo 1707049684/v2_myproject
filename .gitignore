@@ -24,6 +24,11 @@ dist/
 .pytest_cache/
 .mypy_cache/
 
+# Scratch / temporary experiment outputs
+*_TMP.csv
+_tmp_*.py
+_tmp_*.log
+
 # Experiment outputs (uncomment if you do NOT want results in git)
 # GNCDM/result/
 # GNCDM/incremental_result/

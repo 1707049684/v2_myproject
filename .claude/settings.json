@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/Users/Administrator/WPSDrive/1657690587/WPS企业云盘/深圳大学/我的企业文档/Generative-CD-main/.claude/hooks/ruff_format.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_format.py\"",
             "statusMessage": "ruff format"
           }
         ]
