@@ -543,12 +543,12 @@ a0910 `new_user_split` **用户完全互斥**（test∩train=0，test 499 用户
 | Method | AUC_old | AUC_new | RMSE_old | RMSE_new | ACC_old | ACC_new | F1_old | F1_new | TMD\* |
 |---|---|---|---|---|---|---|---|---|---|
 | EWC (λ=10000) | 0.7023 | 0.6690 | 0.5208 | 0.5333 | 0.6753 | 0.6509 | 0.7536 | 0.7294 | 0.0883 |
-| DER++ (mem=5000) | 0.7171 | 0.6673 | 0.4480 | 0.4709 | 0.6997 | 0.6631 | 0.7834 | 0.7557 | 0.0247 |
+| DER++ (mem=5000) | 0.7126 | 0.6792 | 0.4465 | 0.4622 | 0.6988 | 0.6750 | 0.7833 | 0.7676 | 0.0241 |
 | C-LoRA (λ=10000) | 0.6999 | 0.6674 | 0.5201 | 0.5339 | 0.6769 | 0.6425 | 0.7555 | 0.7187 | 0.1320 |
 
-- **DER++ canonical 更新**：采用本轮 run（AUC_new 0.6673），**取代第二十轮 v3 的 0.706**。差异来源：DER 脚本此前**漏设 set_seed**（reservoir 采样/初始化/shuffle 非确定）→ run 间跳动。**已补 `set_seed(42)`** 到 `a0910_der_baseline.py`（对齐 EWC/主实验）。
+- **DER++ canonical（种子固定）**：补 `set_seed(42)` 到 `a0910_der_baseline.py` 后重跑的最终数字（AUC 0.7126/0.6792），**取代第二十轮 v3 的 0.706 及未设种子的 0.6673**。此前 run 间跳动的根因正是漏设 set_seed（reservoir 采样/初始化/shuffle 非确定），现已可复现。
 - **泄露排查（用户问 ACC_new 是否泄露 test）**：否。`test_new` 正类(score=1)占比=**0.6371**，DER++ ACC_new=0.6631 仅高出基线 2.6pt、F1_new 甚至略低于"全猜正类"的 0.778；而 AUC_new=0.667 紧贴随机线 → 若真泄露 AUC 会≈1.0。**高 ACC/F1 是类别不平衡地板效应，非泄露**。推论：这批基线**别看重 ACC/F1，信 AUC/RMSE**。
-- 读表：**DER++ 综合最强**（AUC_old/RMSE/ACC/F1 全面领先，RMSE 0.45 vs 正则法 0.52，replay+概率更校准）；三者 AUC_new 接近(0.667~0.669)。TMD\* 三者各自 embedding 空间，不可比绝对量级、更不可与 Ours 概念 θ TMD=0 比。
+- 读表：**DER++ 全指标最强**（AUC_old/AUC_new/RMSE/ACC/F1 八项全面领先 EWC 与 C-LoRA，RMSE 0.45 vs 正则法 0.52，replay+概率更校准）→ 三 CL 基线中 replay 型 DER++ 最强。TMD\* 三者各自 embedding 空间，不可比绝对量级、更不可与 Ours 概念 θ TMD=0 比。
 
 ### 待办
 - 帕累托前沿可视化（完整 EWC/C-LoRA sweep 各 6 点 + DER 单点 + Ours），并把本总表与 Ours 行合并出论文主对比表。
