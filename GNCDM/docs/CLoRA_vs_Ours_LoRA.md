@@ -125,4 +125,4 @@ math1 λ=0.01 新 0.769 > Ours 0.720）——这是因为它**改了共享诊断
 - C-LoRA 方案一 + 三基线合表：`cl_baselines_random_split.py`（random）、
   `experiments/eval_all_methods_user_split.py`（user，support/query）。
 - C-LoRA 方案二（G-NCDM 骨干）：`gncdm_clora_baseline.py`（`python gncdm_clora_baseline.py a0910`）。
-- 结果：`incremental_result/all_methods_*`、`clora_gncdm_lambda_sweep_*`。
+- 结果：`incremental_result/all_methods_*`、`clora_gncdm_lambda_sweep_random_split.csv`（math1+a0910 合一，含 `dataset` 列）。

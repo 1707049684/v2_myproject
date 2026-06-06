@@ -111,3 +111,25 @@
 - a0910 实测：C-LoRA 最佳 TMD=0.0142>0、AUC_old 0.740<Base 0.744（微遗忘），Ours 旧=0.744/TMD=0。方案二同骨干、TMD 同空间 → 比方案一更硬的对照。
 - 用户拍板两个变体都报；新建 `GNCDM/docs/CLoRA_vs_Ours_LoRA.md` 讲机制区别 + Ours 优势。
 - **当前状态**：未提交。
+
+## 2026-06-06 — 会话：第三十五轮（接入解耦损失，受控测试）
+- 用户拍板「接入解耦损失先跑测试看有无效果」→ 新建 **`GNCDM/experiments/eval_decoupled_loss_math1.py`**（零侵入，import 主脚本全部函数，仅加 `train_decoupled` 混态批 + TopologyAwareDecoupledLoss 循环）。math1 random_split，5 策略受控对比（3/4/5 同 oracle 全参，只差损失+数据流）。
+- **结果（findings 第三十五轮）**：解耦损失**有效但有限**——TMD 0.020（比 NFT 0.064/Replay 0.076 低 3~4×）、AUC_new 0.852 最高（可塑性最佳）；**但 ACC_old 0.686 全场最差**，因 L_old 只蒸馏 θ、不管 ψ/agg/ncd。Ours-DNA 架构隔离两端通吃(TMD=0 且旧=Base)，**严格碾压软损失**。→ 强化论文主卖点，解耦损失宜定位为 ablation。
+- 结果落 `incremental_result/decoupled_loss_test_math1_random_split.csv`。**当前状态**：未提交，待用户定解耦损失去留/是否扩展蒸馏到 ψ。
+
+## 2026-06-06 — 会话：第三十六轮（扩展蒸馏 θ→θ+ψ→θ+ψ+resp）
+- 用户选「扩展蒸馏到 ψ/agg」→ 给 `eval_decoupled_loss_math1.py` 加 `train_decoupled_ext`（零侵入，不改 loss.py），三档消融。
+- **结论（findings 第三十六轮）**：①特征级蒸馏（θ、θ+ψ）救不回 ACC_old（仍 ~0.68，下游 agg+ncd 不受约束）；②**响应级蒸馏（旧题预测 KD）才是钥匙**——θ+ψ+resp 使 AUC_old=0.807=Base、ACC_old 0.725≈Base、TMD 0.019；③完整解耦损失是 DNA 外一个有竞争力工作点：旧≈Base **且可塑性更高**（AUC_new 0.829 vs DNA 0.720），以放弃精确零遗忘换学新能力；④DNA 仍独占精确零遗忘（TMD=0/旧=Base 逐位）。二者互补构成 stability-plasticity 谱系两端。
+- CSV 更新为 7 行。**当前状态**：未提交。待用户定是否把 θ+ψ+resp 提升为正式软变体并接主实验。
+- **补（同轮）**：用户选「a0910 上复现谱系」→ 脚本参数化并重命名 `experiments/eval_decoupled_loss.py`（`DATASETS` 配置 + 命令行选数据集，a0910 用 auto_new_concepts）。本机重跑 math1 无回归，ruff/py_compile 通过。服务器待跑 `python experiments/eval_decoupled_loss.py a0910`（GPU）。
+
+## 2026-06-06 — 会话：第三十七轮（a0910 实跑 + 论文归属澄清）
+- 用户服务器跑出 a0910 结果（存 `incremental_result/decoupled_loss_test_a0910_random_split.csv`）。**复现**：特征蒸馏不足、响应蒸馏救回旧精度（θ+ψ+resp AUC_old=0.742=Base）。**推翻**：math1 上「软损失可塑性 > DNA」是小数据假象——a0910 上两者打平（0.735≈0.736）。→ **真实大数据集 DNA 严格占优**（同可塑性 + 精确 TMD=0 + 更简单），解耦损失宜作 ablation。详见 findings 第三十七轮。
+- **澄清用户疑问**：`TopologyAwareDecoupledLoss` **不是原论文（Toward Fair…，arXiv:2507.09831）的**——原论文用交叉熵、只覆盖新学习者；该损失是本项目增量扩展（git 同在"第一版上传我的项目代码"、在 incremental/），原论文没有、此前也未接主实验。
+- 用户要求出文档 → 新建 **`GNCDM/docs/DecoupledLoss_vs_BCE.md`**：详解解耦损失机制（时空权重 + L_old 蒸馏 + L_new BCE）+ math1/a0910 实证 + 四条"为何不提升"原因（只蒸馏 θ 损旧精度／须补 response-KD／TMD 压不到 0／a0910 可塑性也只打平）+ 结论选 BCE。
+- 结论已定 → 用户要求删除原始 CSV：已删 `incremental_result/decoupled_loss_test_{math1,a0910}_random_split.csv`（数据已固化在 `docs/DecoupledLoss_vs_BCE.md` + findings 第三十六/三十七轮表格）。
+- **用户工作习惯（已存记忆 [[keep-auxiliary-scripts-out-of-repo]]）**：主实验用不到的工具型/探索脚本不留 repo，结论入文档后即删、需要时对话里重建。据此删除 `experiments/eval_decoupled_loss.py`（结论见 `docs/DecoupledLoss_vs_BCE.md` + 记忆 [[decoupled-loss-conclusion]]，可按需重建）。
+- 清理：合并 `clora_gncdm_lambda_sweep_{math1,a0910}_random_split.csv` → 单文件 `clora_gncdm_lambda_sweep_random_split.csv`（加 `dataset` 列，16 行），删两源文件。注：`gncdm_clora_baseline.py` 重跑仍按数据集分别生成、需再合并。
+- 用户自行整理论文表：`main_table_*` → 去 "main_" 改名 `docs/table_{a0910_user,math1_random}_split.md`（math1 表移进 docs/ 与 a0910 并列）。
+- 收尾清理（用户确认）：① 删 `incremental_results_math1_random_split.csv`（冗余，六策略已在 `all_methods_math1_random_split.csv`）；② 清除 `haha`/`hello` 杂项出版本控制；③ `CLoRA_vs_Ours_LoRA.md` 结果引用改精确文件名。
+- **当前状态**：未提交（建议下一步统一 commit + push v2）。

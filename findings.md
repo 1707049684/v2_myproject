@@ -772,3 +772,79 @@ a0910 `new_user_split` **用户完全互斥**（test∩train=0，test 499 用户
 ## 🆕 第三十四轮：用户拍板「方案一+方案二都报」+ 机制文档（2026-06-06）
 - 决策：C-LoRA **两个变体都进论文**——方案一（CognitiveBackbone，通用骨干基线）+ 方案二（G-NCDM 骨干，TMD 同空间、推荐作主对照）。
 - 新建 **`GNCDM/docs/CLoRA_vs_Ours_LoRA.md`**：讲清 C-LoRA 与 Ours(LoRA) 的根本区别（C-LoRA=共享层挂 LoRA+软正交惩罚→近似不遗忘、TMD>0、需调 λ、有稳定性-可塑性权衡；Ours=硬冻结旧参+独立新分支+零填充→精确 TMD=0、旧=Base、无 λ 权衡），含四条优势 + a0910/math1 实证 + 红线。配套 `DNA_vs_LoRA.md`（Ours 内部 DNA vs LoRA）。
+
+## ✅ 第三十五轮：接入 TopologyAwareDecoupledLoss 受控测试——「损失有效但架构碾压」（2026-06-06）
+论文招牌损失 `incremental/loss.py::TopologyAwareDecoupledLoss` 主实验从未接入（前文多轮"待办"）。本轮零侵入测其是否有效：新建 **`GNCDM/experiments/eval_decoupled_loss_math1.py`**（import run_incremental_math1 全部函数，仅加 `train_decoupled` 混态批训练循环），math1 random_split（buffer 预测口径）。
+
+### 受控对比（隔离「损失」一个变量，3/4/5 同为 oracle 全参可训，只差损失+数据流）
+| 策略 | 训练 | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|---|
+| Base | G-NCDM | 0.807 | - | 0.729 | - | - |
+| **Ours-DNA**(硬冻结+BCE,只新题) | G-NCDM | **0.807** | 0.720 | **0.729** | 0.754 | **0.000** |
+| NFT(BCE,只新题) | full | 0.774 | 0.848 | 0.717 | 0.752 | 0.064 |
+| Replay-BCE(BCE,混态) | full | 0.810 | 0.833 | 0.722 | 0.750 | 0.076 |
+| **Decoupled**(解耦损失,混态) | full | 0.766 | **0.852** | **0.686** | 0.752 | **0.020** |
+
+### 结论：解耦损失「部分有效」，但架构隔离严格碾压
+1. **损失确实在做它声称的事**：对照 NFT/Replay（同 oracle 全参），Decoupled **TMD 降 3~4 倍**（0.020 vs 0.064/0.076，L_old 蒸馏全程 5e-4~3e-3 把 θ 流形钉在 base 附近）；且 **AUC_new 0.852 全场最高**（可塑性最佳）。→ 证明 TMD 是可被优化的真实量、解耦损失方向成立。
+2. **致命短板：保不住旧题预测精度**。Decoupled **ACC_old 0.686 / AUC_old 0.766 全场最差**（连朴素 BCE 都不如）。**根因（非 bug，损失的结构性局限）**：L_old 只蒸馏 **θ 一条流形**，旧题预测还依赖 **ψ + 聚合矩阵 + ncd 解码器**；这三者在新题 BCE 梯度下自由漂移、无约束 → θ 保住(TMD 低)但旧题精度照塌。Replay-BCE 因喂旧题标签、对旧题有"预测对"信号，ACC_old 反而更高(0.722)，但再拟合使 θ 流形漂移最大(0.076)。
+3. **Ours-DNA（架构隔离）两端通吃**：冻结整条旧通路(θ+ψ+agg+ncd) → TMD=0 **且** ACC_old 逐位=Base(0.729)。软损失只能保 θ 一条流形、压不住旧精度，**架构隔离严格优于软损失**。
+4. **对论文的意义（强化主卖点）**：连论文自家招牌解耦损失（软方法）都只压得住 TMD、压不住旧题精度；唯 DNA/LoRA 硬架构隔离能真正零遗忘。→ 解耦损失宜作 **ablation**，论证"TMD 可优化 + 软正则不足、必须靠架构"，不宜作主实验默认损失。
+- 结果落 `incremental_result/decoupled_loss_test_math1_random_split.csv`。本机 CPU 跑（5 策略×25ep，约数分钟）。
+- **待用户拍板（非阻塞）**：①就此把解耦损失定位为 ablation（推荐）；②尝试把蒸馏从 θ 扩展到 ψ/agg/ncd 看 ACC_old 能否救回（"让损失真正 work"路径，但即便救回也只是逼近 DNA 的 TMD=0/旧=Base，性价比待估）；③弃用。a0910 上是否复现该现象未跑（如需服务器跑同脚本改数据集维度）。
+
+## ✅ 第三十六轮：扩展蒸馏（θ→θ+ψ→θ+ψ+响应）——响应级蒸馏才救得回 ACC_old（2026-06-06）
+承上：用户选「扩展蒸馏到 ψ/agg」。在 `eval_decoupled_loss_math1.py` 加 `train_decoupled_ext`（zero-intrusion，不改 incremental/loss.py），把旧样本 L_old 从只蒸馏 θ 逐级扩展，做三档消融（math1 random_split，5/6/7 同 oracle 全参、混态流、combined valid 选优）：
+
+| 策略 | 蒸馏项 | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|---|
+| Base | - | 0.807 | - | 0.729 | - | - |
+| **Ours-DNA**(架构) | - | **0.807** | 0.720 | **0.729** | 0.754 | **0.000** |
+| Decoupled | θ | 0.766 | **0.852** | 0.686 | 0.752 | 0.020 |
+| Decoupled | θ+ψ | 0.770 | 0.849 | 0.677 | 0.761 | 0.020 |
+| **Decoupled** | **θ+ψ+resp** | **0.807** | 0.829 | **0.725** | 0.750 | 0.019 |
+
+### 结论（推翻第三十五轮「架构严格碾压软损失」的一部分）
+1. **特征级蒸馏（θ，乃至 θ+ψ）救不回旧精度**：加 ψ 后 ACC_old 0.686→0.677（几乎没动），训练中 valid_acc 仍中途崩到 0.62。**根因**：蒸 θ/ψ 中间特征并不约束 **聚合矩阵 + ncd 解码器**，下游照样漂移、毁掉旧题预测。用户问的"agg"靠纯特征蒸馏覆盖不到。
+2. **响应级蒸馏才是钥匙**：加旧题最终预测的 KD（BCE(student_old_pred, base_old_pred)，隔空约束 agg+ncd 整条下游）后，**AUC_old 0.807=Base 逐位、ACC_old 0.725≈Base 0.729**，TMD 0.019；训练全程 valid_acc 稳在 0.73~0.74 不崩（L_old≈0.55，提供真实梯度，不再是 θ-only 的 5e-4 量级）。
+3. **完整解耦损失 = DNA 之外一个有竞争力的工作点**：θ+ψ+resp 近乎恢复旧任务到 Base，**且可塑性显著高于 DNA**（AUC_new **0.829 vs DNA 0.720**）——因为它训练整张扩展网络学新题，而 DNA 把学新困在隔离侧分支、容量受限。**它以"放弃精确零遗忘（TMD 0.019≠0、旧≈Base 但非逐位）"换来更强的学新能力。**
+4. **DNA 仍独占「精确零遗忘」**：TMD=0、旧=Base 逐位可证可审计，软损失只能逼近。→ **二者互补、非彼此支配**：要可证零遗忘选架构（DNA/LoRA）；能容忍 ~0.02 TMD 换更高可塑性选完整解耦损失。
+5. **论文定位（更新）**：解耦损失不再只是"证明 TMD 可优化"的弱 ablation；**θ+ψ+resp 版可作为 Ours 的一个软变体/操作点**，与硬架构隔离构成 stability-plasticity 谱系的两端。⚠️ 但 resp 蒸馏本质是 response-KD（类 DER/LwF），要在论文里说清它与"解耦"原始设计的关系，别夸大为原损失即可达成。
+- 结果落 `incremental_result/decoupled_loss_test_math1_random_split.csv`（7 行）。CPU 跑约数分钟。
+- **待办（非阻塞）**：①a0910 上复现该谱系（服务器，改维度）→ 第三十六轮·补完成参数化；②若采纳 θ+ψ+resp 为正式软变体，把 `train_decoupled_ext` 从测试脚本提升进 incremental/ 并接主实验；③扫 resp 蒸馏权重看 stability-plasticity 曲线（当前各项等权相加）。
+
+### 第三十六轮·补：脚本参数化覆盖 a0910（2026-06-06）
+- 用户选「a0910 上复现该谱系」。把 `eval_decoupled_loss_math1.py` 泛化并**重命名 `experiments/eval_decoupled_loss.py`**（去 `_math1` 后缀，对齐覆盖型脚本惯例）：
+  - 顶部 `DATASETS` 配置（math1/a0910 的维度/路径/alpha/new_concepts），命令行选数据集：`python experiments/eval_decoupled_loss.py [math1|a0910]`（默认 math1）。
+  - a0910 的 `new_concepts=None` → 复用 `run_incremental_a0910.auto_new_concepts(Q,0.34)`（最冷门概念，与主实验一致）；alpha=0.9、4163×17746×123；random_split（buffer 预测口径）。
+  - 输出 `incremental_result/decoupled_loss_test_{dataset}_random_split.csv`（7 行：Base/DNA/NFT/Replay/Decoupled θ·θ+ψ·θ+ψ+resp）。
+- 本机重跑 math1 验证参数化无回归（种子固定复现 7 行）；py_compile + ruff（仅 E402 惯例）通过。
+- 🖥️ **服务器待跑**：`cd GNCDM && python experiments/eval_decoupled_loss.py a0910`（17746 题、7 策略×25ep、resp 蒸馏每 batch 多一次 base.forward，较重，需 GPU）。验证「特征蒸馏不足、响应蒸馏救回旧精度、完整解耦损失=高可塑性软工作点、DNA 独占精确零遗忘」在大数据集是否同样成立。a0910 的 `data/a0910/` 仅服务器有。
+
+## ✅ 第三十七轮：a0910 实跑——谱系一半复现、一半被推翻；DNA 在真实数据重新占优（2026-06-06）
+用户服务器实跑 `eval_decoupled_loss.py a0910`，结果存 `incremental_result/decoupled_loss_test_a0910_random_split.csv`（已入 repo）。
+
+| 策略 | 蒸馏 | AUC_old | AUC_new | ACC_old | TMD |
+|---|---|---|---|---|---|
+| Base | - | 0.742 | - | 0.729 | - |
+| **Ours-DNA** | - | **0.742** | 0.736 | 0.729 | **0.000** |
+| NFT | - | 0.704 | 0.739 | 0.696 | 0.021 |
+| Replay-BCE | - | 0.746 | 0.735 | 0.729 | 0.027 |
+| Decoupled | θ | 0.701 | 0.742 | 0.696 | 0.019 |
+| Decoupled | θ+ψ | 0.713 | 0.740 | 0.711 | 0.017 |
+| **Decoupled** | θ+ψ+resp | **0.742** | 0.735 | 0.731 | 0.016 |
+
+### ✅ 复现（稳健结论，两数据集一致）
+- 特征蒸馏（θ、θ+ψ）救不回旧精度：AUC_old 0.701/0.713 < Base 0.742；**响应蒸馏一加，旧任务回 Base**：θ+ψ+resp → AUC_old 0.742=Base、ACC_old 0.731≈Base 0.729、TMD 0.016。→「必须蒸馏响应（约束 agg+ncd 下游）才保得住旧精度」是跨数据集稳健发现。
+
+### ❌ 被推翻（math1 的小数据假象）
+- 第三十六轮 math1 上「完整解耦损失可塑性远高于 DNA」（AUC_new 0.829 vs 0.720）**在 a0910 消失——两者打平（0.735 vs 0.736）**。
+- 根因：math1 仅 7 新题，DNA 隔离侧分支被饿着；a0910 有 6206 新题/83 新概念，DNA 侧分支数据充足、学新一样好。**那个可塑性优势是 math1 小数据的协议产物，非软损失的真实优点。**
+
+### 修正后总结论：真实大数据集上 DNA 严格占优
+- a0910 上 DNA：可塑性与解耦损失持平（0.736≈0.735）、**TMD 精确=0**（解耦损失最好 0.016）、且更简单（无混态流/无 teacher）。
+- **解耦损失只能逼近 DNA 用架构精确做到的事，在真实数据上无额外收益。** → 论文里解耦损失最适合作 **ablation**：证明"连响应级软蒸馏也只能逼近、达不到架构隔离的精确零遗忘（TMD=0、旧=Base 逐位）"。完整谱系（特征蒸馏不足 → 响应蒸馏逼近 → 架构精确）构成一条干净的 stability 论证链。
+
+### ⚠️ 重要澄清：TopologyAwareDecoupledLoss 不是原论文的
+- `docs/paper.pdf` = "Li et al., 2026, Toward Fair and Efficient Intelligent Learning: A Generative Cognitive Diagnosis Approach"（arXiv:2507.09831）。该论文 G-NCDM **用普通交叉熵**，且只覆盖"新学习者"归纳诊断，**不含新题/新知识的增量学习**。
+- `incremental/loss.py::TopologyAwareDecoupledLoss` 是**本项目自己的增量扩展**（git：与 expand_topology/DNA/LoRA 同在 "第一版上传我的项目代码" commit、置于 incremental/），**原论文里没有**，此前也从未接入主实验。→ 用户在论文中找不到它是正常的；增量学习这部分是待写的新贡献，该损失是其候选组件（结论：宜作 ablation，不宜作主方法）。
