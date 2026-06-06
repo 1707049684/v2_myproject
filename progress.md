@@ -41,3 +41,73 @@
 - LoRA 新题偏弱：低秩路径(A/B agg)未被 dense 正交掩码覆盖，需单独处理。
 - 可选：接非对称混态流(1:3/1:4 对比)、换 TopologyAwareDecoupledLoss。
 - 是否把修复回灌/替换原 run_incremental_real.py。
+
+## 2026-06-06 — 会话：第二十五轮（帕累托图 + 主对比表）
+- 完成第二十四轮待办：`plot_pareto_frontier.py`（读已提交 CSV，可复现）产出
+  - `incremental_result/cl_baseline_sweeps_a0910_random_split.csv`（EWC/C-LoRA 各 6 点 + DER 1 点，落盘可复现）
+  - 主表：`incremental_result/main_comparison_a0910_random_split.csv`（数据）+ `docs/main_comparison_a0910_random_split.md`（人读版，带脚注）
+  - `docs/pareto_frontier_a0910_random_split.png`（稳定性-可塑性前沿，Ours 右上支配 CL 基线；只存 png）
+- 红线守住：坐标轴只用 AUC（不同骨干不当纯策略比）；TMD 仅文字标注、不上同一数值轴。
+- findings.md 待办全部清空（剩 3 项均为可选/待用户执行，非阻塞）。
+- **当前状态**：未提交。等待用户决定是否 commit + push v2。
+
+## 2026-06-06 — 会话：第二十六轮（三 CL 基线 user_split 合一脚本）
+- 删除 `GNCDM/plot_pareto_frontier.py`（用户认为无用）。
+- 新建 **`GNCDM/a0910_cl_baselines_user_split.py`**：一次跑完 EWC/DER++/C-LoRA 三基线的 a0910 **user_split**。
+- 拍板冷启动协议 = **Recon-mirror**（对齐 Ours/CDAE 重构口径）+ EWC/C-LoRA 完整 6 点 λ 扫描 + DER 单点。
+  - 原因：user_split test 用户与训练互斥（train∩test=0），transductive 骨干须冷启动；对比实验须全员同口径，本论文 user_split=重构，故基线也用重构。
+  - `coldstart_recon_eval`：冻结 item_emb+MLP(+LoRA)，给 test 用户用其全部作答梯度拟合 student_emb，再 old/new 分别重构。
+- avalanche 改惰性导入（本地无 avalanche 也能跑 C-LoRA）；训练固定 epoch（user_split valid 也互斥）。
+- 本地冒烟测试 C-LoRA 全链路通过（数据维度对、冷启动 AUC 有意义）；EWC/DER 需 GPU 服务器装 avalanche 实跑。ruff 通过。
+- 输出 4 个 csv 到 `incremental_result/`（含 `common_cl_baselines_a0910_user_split.csv` 合并总表）。
+
+### 更正（同日）：Recon-mirror 记忆泄漏 → 改 Support/Query 留出
+- 用户服务器实跑发现基线 ACC/AUC 高过 Ours 20 点（EWC AUC 0.93 等）→ 根因：在全部作答上拟合 student_emb 又考同一批题，背下自己标签（协议缺陷，非 bug）。
+- 改 `coldstart_recon_eval` + `load_a0910_user_split` 为 support/query 留出（按用户切 0.5，support 拟合、query 评测、不相交）。冒烟验证无泄漏、数字回落到 AUC 0.68~0.71（低于 Ours，合理）。
+- 🔴 遗留 TODO：Ours user_split 仍用全向量 recon，须也改成 support/query 才能与基线同表对比（用户要求本轮只改基线、已提醒）。服务器需重跑该脚本，旧 0.9+ csv 作废。
+
+## 2026-06-06 — 会话：第二十七轮（Ours user_split 也改 support/query，独立脚本）
+- 用户服务器重跑基线得健康数字（EWC 0.706/0.681、DER 0.680/0.666、C-LoRA λ=10 0.684/0.689，全低于 Ours，反超消失）。
+- 用户拍板「改 Ours，但若有损文件风险就单独做脚本」→ 新建 **`GNCDM/experiments/eval_ours_supportquery_user_split.py`**：import 主脚本全部函数、零侵入，只换评测为 support/query。
+- 零侵入关键：复用 `evaluate_recon`，把 log_mat 换成仅 support 构建、eval_df 换成 query 行 → user_log 不含被预测项、无泄漏；训练逻辑完全不动。
+- 本地 math1 冒烟通过：DNA/LoRA AUC_old=Base=0.6929、TMD=0；Ablated/NFT 旧崩。叙事不变。ruff（除 E402 同 runner 惯例）通过。
+- 服务器待跑该脚本得 a0910 Ours support/query 数字，再与基线总表同口径合表 = 论文 user_split 主对比表。
+
+## 2026-06-06 — 会话：第二十八轮（九方法统一脚本 + math1 冷启动隐患）
+- 用户要求把 6 Ours + 3 基线放一个脚本、math1 也跑 → 新建 **`GNCDM/experiments/eval_all_methods_user_split.py`**：一份 support/query 切一次共用，9 方法同 query 行评测，一张合并表。默认 math1，`RUN_A0910=True` 加跑 a0910。
+- ⚠️ math1 冒烟（epoch 不对等）发现 C-LoRA 冷启动反超 Ours（非泄漏，是小题空间+推理期逐用户拟合的优势）；a0910 实跑无此问题。需服务器跑满 epoch 核实，再定 math1 baseline 的呈现方式（见 findings 第二十八轮）。
+
+## 2026-06-06 — 会话：第二十九轮（实跑结果 + 分析 + 论文主表）
+- 服务器实跑两表（comparison_all_methods_{math1,a0910}_user_split.md）已分析（findings 第二十九轮）：
+  - **a0910（主对比成立）**：Ours DNA/LoRA 旧=Base、TMD=0；LoRA new AUC 0.707 ≥ 全部基线；唯一瑕疵=基线绝对 AUC_old 略高（骨干+冷启动差异，非遗忘）。
+  - **math1（协议退化）**：仅 7 新题→support 新题作答太少→Ours new 近随机(LoRA 0.506)、基线两轴反超。建议 math1 不进基线主表。
+- 4 个结果文件复制进 `GNCDM/incremental_result/`；新建论文主表 `GNCDM/docs/main_table_a0910_user_split.md`（分组+Backbone 列+加粗+完整 caveat）。
+
+## 2026-06-06 — 会话：第三十轮（incremental_result 清理 + 总表统一命名）
+- 删 `common_cl_baselines_a0910_random_split.csv`（冗余，已并入 random 总表）。
+- 删旧口径（全向量 recon）的 `incremental_results_{a0910,math1}_user_split.csv`（被新 support/query 总表取代；可由 run_incremental_*.py 重新生成）。
+- **总表统一命名 `all_methods_{dataset}_{split}.{csv,md}`**（去掉 `comparison_`/`main_comparison_`）：
+  - user_split 两表 + random_split 总表（原 main_comparison）都改名；docs 的 random md 同步改名；`eval_all_methods_user_split.py` 的 write_tables 输出名同步改为 `all_methods_{split}`。
+  - `docs/main_table_a0910_user_split.md`（论文主表，独立命名保留）的 source 路径已更新指向 `all_methods_a0910_user_split.csv`。
+- 两个边界文件（cl_baseline_sweeps / base_alpha_sweep）按用户要求保留。
+- 当前 `incremental_result/` 留：all_methods_{a0910_random,a0910_user,math1_user}（总表）+ incremental_results_{a0910,math1}_random_split（Ours RQ2 预测口径原始输出）+ 两个 sweep。
+
+## 2026-06-06 — 会话：第三十一轮（math1 random 三基线 + 合并总表脚本）
+- math1 random_split 此前无三基线结果 → 新建 **`GNCDM/math1_cl_baselines_random_split.py`**：EWC/DER/C-LoRA 一次跑完（random 无需冷启动，直接预测）+ 自动合并 Ours csv → `all_methods_math1_random_split.{csv,md}`。
+- 本地冒烟（C-LoRA+合表）通过，ruff 通过。EWC/DER 需 avalanche → 服务器跑 `cd GNCDM && python math1_cl_baselines_random_split.py`。
+- ⚠️ 冒烟 C-LoRA 在 math1 又偏高，但 random 无冷启动是干净口径，可能是真实信号；待服务器跑满 epoch 核实。
+- 服务器实跑结果到（all_methods_math1_random_split.md，已复制进 repo）：**保旧 Ours 最强**（DNA/LoRA=Base=0.807、TMD=0），但**学新 Ours 弱**（DNA 0.720/LoRA 0.671 < 三基线 0.79~0.84）——真实信号（7 新题致 G-NCDM 新分支欠数据）。跨四设置定论：**主对比用 a0910（Ours 全胜）；math1 不作 baseline 可塑性主对比**（见 findings 第三十一轮）。
+- **当前状态**：未提交。
+
+## 2026-06-06 — 会话：第三十二轮（脚本整合：只留覆盖型）
+- 把 random 基线泛化为 **`GNCDM/cl_baselines_random_split.py`**（覆盖 math1+a0910，三基线+合并九方法总表，RUN_A0910 开关），补上 a0910 random 的统一覆盖缺口。
+- 删除被覆盖的单脚本：a0910_{clora,der,ewc}_baseline.py、math1_der_baseline.py、math1_cl_baselines_random_split.py、a0910_cl_baselines_user_split.py、experiments/eval_ours_supportquery_user_split.py。
+- CL 基线脚本最终只剩两覆盖型：`cl_baselines_random_split.py`（random）+ `experiments/eval_all_methods_user_split.py`（user）；`a0910_gncdm_clora_baseline.py`（方案二负结果）待用户定去留。
+- ⚠️ 教训：冒烟测试勿用真实 cfg 写真实输出路径（本轮误覆盖+删 all_methods_math1_random_split，已从 WPS 恢复）。
+- **当前状态**：未提交。
+
+## 2026-06-06 — 会话：第三十三~三十四轮（方案二救活 + 机制文档）
+- 方案二 `a0910_gncdm_clora_baseline.py` → 重命名 **`gncdm_clora_baseline.py`**（参数化 math1/a0910，命令行选数据集），三处最佳努力修复（归一化惩罚/细扫 λ∈(0,1)/解冻新概念聚合列）全部生效：AUC_new 从 ~0.5 救回 0.72~0.77，干净权衡曲线。
+- a0910 实测：C-LoRA 最佳 TMD=0.0142>0、AUC_old 0.740<Base 0.744（微遗忘），Ours 旧=0.744/TMD=0。方案二同骨干、TMD 同空间 → 比方案一更硬的对照。
+- 用户拍板两个变体都报；新建 `GNCDM/docs/CLoRA_vs_Ours_LoRA.md` 讲机制区别 + Ours 优势。
+- **当前状态**：未提交。

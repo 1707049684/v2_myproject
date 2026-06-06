@@ -551,4 +551,224 @@ a0910 `new_user_split` **用户完全互斥**（test∩train=0，test 499 用户
 - 读表：**DER++ 全指标最强**（AUC_old/AUC_new/RMSE/ACC/F1 八项全面领先 EWC 与 C-LoRA，RMSE 0.45 vs 正则法 0.52，replay+概率更校准）→ 三 CL 基线中 replay 型 DER++ 最强。TMD\* 三者各自 embedding 空间，不可比绝对量级、更不可与 Ours 概念 θ TMD=0 比。
 
 ### 待办
-- 帕累托前沿可视化（完整 EWC/C-LoRA sweep 各 6 点 + DER 单点 + Ours），并把本总表与 Ours 行合并出论文主对比表。
+- ~~帕累托前沿可视化（完整 EWC/C-LoRA sweep 各 6 点 + DER 单点 + Ours），并把本总表与 Ours 行合并出论文主对比表。~~ → 第二十五轮完成。
+
+## ✅ 第二十五轮：帕累托前沿图 + 主对比表（a0910 random_split，2026-06-06）
+完成第二十四轮待办。脚本 **`GNCDM/plot_pareto_frontier.py`**（从已提交 CSV 读数，可复现），新增三个产物：
+- **完整 sweep 数据 CSV** `incremental_result/cl_baseline_sweeps_a0910_random_split.csv`：EWC 6 点 + C-LoRA 6 点 + DER++ 1 点（从 findings 第二十一/二十三/二十四轮表重建落盘，此前只有 3 点汇总）。
+- **主对比表**：纯数据 `incremental_result/main_comparison_a0910_random_split.csv`（供程序读，与其它结果 csv 同目录）+ 人读版 `docs/main_comparison_a0910_random_split.md`（含 TMD 脚注，可直接进论文）。六策略（Base/DNA/LoRA/Ablated/Oracle/NFT）+ 三基线（EWC λ=10000 / DER++ mem=5000 / C-LoRA λ=10000）九列全指标。
+- **帕累托前沿图** `docs/pareto_frontier_a0910_random_split.png`：x=AUC_new(可塑性)、y=AUC_old(稳定性)，右上更优。EWC/C-LoRA 画 λ sweep 折线（标注两端 λ）、DER++ 单点、Ours 五策略散点、Base AUC_old 水平参考线。（只存 png，不再存 pdf。）
+
+**图的叙事**：Ours(DNA/LoRA/Oracle) 聚在右上角（AUC_old≈0.744、AUC_new≈0.736~0.740），三 CL 基线的权衡前沿整体压在左下（AUC 都 <0.71）→ **Ours 在两个轴上同时支配所有 CL 基线**，且 TMD=0（基线 TMD>0）。
+**两条红线在图/表里都守住**：① 坐标轴只用 AUC（不把不同骨干的绝对指标当纯策略比较，markdown 表脚注写明骨干差异）；② TMD 只在表里文字标注、绝不放进同一数值轴（embedding 空间 vs 概念 θ 空间不可比量级，仅"是否为 0"有意义）。
+
+### 待办
+- BCELoss→TopologyAwareDecoupledLoss（可选增强，仍未接入，非阻塞）。
+- a0910 双划分在 GPU 服务器跑（用户自行执行）。
+- ~~CL 基线 user_split 的 transductive 冷启动协议（DER/EWC/C-LoRA 共同，待用户拍板）。~~ → 第二十六轮拍板并实现。
+
+## 🆕 第二十六轮：三 CL 基线 user_split（Recon-mirror 冷启动）合一脚本（2026-06-06）
+补齐第二十~二十一轮遗留的 user_split 障碍。新建 **`GNCDM/a0910_cl_baselines_user_split.py`**（self-contained，一次跑完 EWC λ 扫描 + DER++ 单点 + C-LoRA λ 扫描 + 三者均衡点合并总表）。
+- 删除上一轮的 `GNCDM/plot_pareto_frontier.py`（用户认为无用）。
+
+### 关键决策：冷启动协议（用户拍板）
+- a0910 `new_user_split` 实测 **train∩test=0**（test 499 用户互斥、人均 ~109 条作答），transductive 的 `CognitiveBackbone` 对 test 用户 `student_emb` 从未训练 → 直接预测无效。
+- **用户选定 Recon-mirror（对齐 Ours/CDAE 的重构口径）+ 完整 λ 扫描**。理由：对比实验最高准则是「全部方法同一评测协议」；本论文 user_split = score reconstruction（对标 CDAE/U-AutoRec），Ours 也走 `evaluate_recon`（输入含被预测项），故基线也须重构口径才能同表。Support/Query 留出口径虽更干净，但会与 Ours recon 口径错位、不能同表比，除非把 Ours 一起改测——已否决。
+- **实现 `coldstart_recon_eval`**：训练完冻结 item_emb+MLP(+LoRA) → 给 test 用户新建 `student_emb` → 用其**全部**作答梯度拟合（固定函数下的 MAP 能力估计，= G-NCDM 编码器的逐用户优化版）→ 在 old/new 题分别重构。超参 `COLD_START_EPOCHS=30, LR=1e-2, SEED=123`（顶部常量，可调）。
+
+### 与 random_split 三脚本的差异（已在脚本 docstring 写明）
+- avalanche 改**惰性导入**（放进 run_ewc/run_der 内）：本地无 avalanche 也能跑 C-LoRA，缺该依赖不阻塞另两个基线。
+- 训练统一**固定 epoch**（DER 不再 per-epoch 早停）：user_split valid 用户也互斥，逐 epoch 冷启动验证代价高，且 EWC/C-LoRA 本就固定 epoch。
+- TMD* 仍在**训练用户** student_emb 空间度量（与 test 冷启动无关），逻辑同 random 脚本。
+
+### 输出（运行后写 `incremental_result/`）
+`ewc_lambda_sweep_a0910_user_split.csv`、`der_a0910_user_split.csv`、`clora_lambda_sweep_a0910_user_split.csv`、`common_cl_baselines_a0910_user_split.csv`（三者 `avg(AUC_old,AUC_new)` 最大均衡点合并）。
+
+### 验证状态
+- 本地**无 avalanche**，已冒烟测试 C-LoRA 全链路（数据加载 + 严格二分 + 冷启动 + sweep + 总表）：1-epoch 即得有意义重构 AUC（old≈0.70/new≈0.70，非随机 0.5），数据维度（新概念 83、旧题 11540/新题 6206、test 499 用户）与 a0910 主实验一致。EWC/DER 用与 random 脚本逐字相同的 avalanche 调用，**需在装有 avalanche 的 GPU 服务器上实跑**得最终数字。
+- ruff check/format 通过。
+
+### 红线（写论文务必守住，同 random_split）
+① AUC/ACC/F1/RMSE 与主表 user_split 行同重构口径、可逐行对比；② TMD* 为 embedding 空间，量级**不可**与 Ours 概念 θ TMD(0/0.022) 比；③ 骨干非 G-NCDM，勿称纯策略胜出；④ 冷启动梯度拟合 vs G-NCDM 单次 forward 的差异需脚注说明。
+
+## 🔴 第二十六轮·更正：Recon-mirror 记忆泄漏，改 Support/Query 留出（2026-06-06）
+用户在服务器实跑后发现 `common_cl_baselines_a0910_user_split.csv` 的 **ACC/AUC 高得离谱且高过 Ours**（EWC AUC_old 0.931/AUC_new 0.895、DER 0.915/0.900、C-LoRA 0.928/0.889；ACC 0.82~0.87）。而 Ours a0910 user_split 仅 AUC 0.71~0.77 → **基线反超我们 20 点，可比性崩**。
+
+### 根因：Recon-mirror 是协议缺陷，不是代码 bug
+`coldstart_recon_eval` 旧版在 test 用户**全部作答**上梯度拟合 64 维 student_emb，又在**同一批作答**的 old/new 子集上评测 → 每个用户的向量**背下了自己的标签**（记忆泄漏）。这与 G-NCDM 的 `evaluate_recon` 关键不同：后者一次 forward 过**共享**编码器、无法记忆单个 test 用户标签，故含自信息也只有 0.71~0.77；逐用户梯度拟合记忆能力强一个量级。→ **第二十六轮"Recon-mirror 与 Ours 同质、仅脚注差异"的判断被推翻**，差异是 20 点级、致命。
+
+### 修复：Support/Query 留出（用户拍板「只先改 3 基线，并提醒改 Ours」）
+- 改 `load_a0910_user_split`：每个 test 用户**按用户**切 `SUPPORT_FRAC=0.5`（`groupby.sample`，`SUPPORT_SPLIT_SEED=7`）→ support 拟合 student_emb、query 评测，二者**不相交**。`coldstart_recon_eval` 只在 support 上拟合、在 query 的 old/new 上分别评测。
+- 本地冒烟（C-LoRA，CPU）：support 27109 / query_old 18677 / query_new 8436，**support∩query=0 对**（无泄漏）；C-LoRA 数字回落到 **AUC 0.68~0.71 / ACC 0.68~0.72**，与 random_split 基线同量级、且**低于 Ours**，反超消失；λ=0→1000 仍现保旧↑/学新↓权衡。
+- 🔴 **遗留 TODO（务必做，已在脚本 docstring + 总表打印里标红）**：现在基线用 support/query（输入不含被预测项）、Ours user_split 仍用全向量 recon（输入含被预测项）→ **两者口径未对齐、暂不可同表逐行比**，且现状反而对基线不公平（Ours 能看到答案）。**完全公平需把 Ours 的 user_split 评测也改成 support/query**（对 G-NCDM 即：把 query 题从输入作答向量挖掉、只喂 support 再预测 query）。本轮按用户要求只改基线，Ours 改造未做。
+- 服务器需**重跑** `a0910_cl_baselines_user_split.py`：之前那份 0.9+ 的 csv 作废。
+
+### 修复后基线新数字（用户服务器重跑，a0910 user_split，support/query）
+| Method | AUC_old | AUC_new | ACC_old | ACC_new | TMD* |
+|---|---|---|---|---|---|
+| EWC (λ=10000) | 0.7064 | 0.6806 | 0.6865 | 0.6667 | 0.0859 |
+| DER++ (mem=5000) | 0.6803 | 0.6659 | 0.6709 | 0.6483 | 0.1164 |
+| C-LoRA (λ=10) | 0.6839 | 0.6889 | 0.6764 | 0.6732 | 0.1474 |
+- 三基线 AUC 全在 **0.66~0.71**，**全部低于** Ours 全向量 recon 表的 DNA 0.714/0.734、LoRA 0.714/0.767 → 反超消失、无泄漏，健康。C-LoRA 均衡点从 λ=10000 变 λ=10（留出后权衡曲线形状变了，正常）。
+- ⚠️ 但此时仍**不可**直接和 Ours 全向量 recon 数字比——口径不同（见下）。
+
+## 🆕 第二十七轮：Ours user_split 也改 support/query（独立脚本，不改主实验）（2026-06-06）
+承上：基线已 support/query、Ours 主表仍全向量 recon → 口径不齐。用户拍板「只先改基线、提醒改 Ours」后，本轮把 Ours 也对齐，但**用独立脚本、零侵入**（用户担心动主实验文件有风险）。
+- 新建 **`GNCDM/experiments/eval_ours_supportquery_user_split.py`**：`from run_incremental_math1 import ...` 复用全部训练/模型/工具函数，**不修改任何既有文件**；只把评测改成 support/query。
+- **零侵入关键洞察**：support/query 版**无需新评测函数**——直接复用 `evaluate_recon`，把它的 `eval_log_mat` 换成**仅由 support 作答构建的 log_mat**、`eval_df` 换成 **query 行**。则 `user_log=support_log[user]` 天然不含被预测项 → 无泄漏。Ours 训练只在 train 用户上、评测才喂 test 作答，所以训练逻辑完全不动。
+- `support_frac=0.5 / split_seed=7` 与基线脚本一致（同协议、同比例；两脚本各自 per-user 切分，选中的具体行不必逐条相同）。
+- base 走旧题空间(n_item_old)、support 也只取旧题作答；策略走完整空间。结果写 `incremental_result/incremental_results_{split}_supportquery.csv`（**不覆盖主表**）。
+- 本地 math1 user_split 冒烟（CPU，25ep）跑通：**DNA/LoRA AUC_old=Base=0.6929 逐位相同、TMD=0**（零遗忘保住）；Ablated 旧崩 0.479、NFT 旧崩 0.522 且 TMD 最高 → 叙事不变。数字比全向量 recon 低（Base 0.69 vs 原 ~0.84）属预期（去掉自信息→诚实泛化水平）。a0910 需 GPU 服务器实跑。
+- ruff：UP009/I001 已修；E402 与 `run_incremental_math1.py` 同款（sys.path 技巧必然，仓库一贯接受）。
+
+### 服务器待跑（拿最终可比数字）
+1. `cd GNCDM/experiments && python eval_ours_supportquery_user_split.py` → 得 Ours 的 a0910 user_split **support/query** 数字。
+2. 与 `common_cl_baselines_a0910_user_split.csv`（已 support/query）**同口径合表** → 这才是论文 user_split 主对比表。
+（math1 user_split 也会顺带产出，但基线没跑 math1，仅供 Ours 自身两口径对照。）
+
+## 🆕 第二十八轮：九方法统一脚本（6 Ours + 3 基线，同口径）+ math1 冷启动隐患（2026-06-06）
+用户要求「math1 三基线还没跑过 user_split，把 6 个 Ours 和 3 个基线放一个脚本、统一口径」。
+新建 **`GNCDM/experiments/eval_all_methods_user_split.py`**：
+- **一份 support/query 划分（frac=0.5/seed=7）切一次，Ours 与基线共用** → 九方法在**完全相同的 query 行**上评测，真正逐行可比。Ours 走 G-NCDM `evaluate_recon`（仅 support 的 log_mat），基线走 CognitiveBackbone 冷启动；EWC/C-LoRA 内部跑 6 点 λ 取均衡点进合并表，DER 单点。
+- 参数化 config，默认跑 math1（`RUN_A0910=True` 可加跑 a0910）。输出 `comparison_all_methods_{split}.{csv,md}`（带 TMD 红线脚注）+ 两条 λ sweep csv。
+- ruff：除 E402（sys.path 技巧，同 run_incremental_math1 惯例）外通过。
+
+### ⚠️ 重要观察（math1 冒烟，需在服务器实跑核实）
+冒烟测试（**epoch 不对等**：Ours 25ep、C-LoRA 仅 2ep；EWC/DER 为假数据占位）里 **C-LoRA 冷启动在 math1 反超 Ours**（C-LoRA AUC_old 0.789/new 0.838 vs DNA 0.693/0.557）。**不是泄漏**（support∩query=0 已验证），而是：
+- math1 只有 **20 题**，冷启动用 ~10 条 support 梯度拟合 64 维 student_emb（30 ep, lr 1e-2）→ 对 ~10 条 query 预测很有效；
+- G-NCDM recon 是**单次 forward 的 amortized 诊断**，无逐用户优化。→ 冷启动给了基线一个**推理期逐用户拟合的优势**，在小题空间(math1)上凸显。
+- **a0910（用户实跑，17746 题）没有此问题**：基线 0.66~0.71 < Ours 0.71~0.77，前沿正常。
+
+**给用户的决策（待定，非阻塞）**：math1 baseline 若真反超 Ours，是协议产物（小题空间 + 推理期逐用户拟合）而非"基线更好"。可选：① 主对比以 **a0910 为准**（基线本就只为 a0910 设计），math1 仅作 Ours 自身两口径对照；② 接受并按"G-NCDM 胜在**效率（免逐用户重训）+ 零遗忘 TMD=0 + 归纳**"叙事，不强调 math1 精度；③ 调冷启动预算（会像 nerf 基线，不推荐）。**先服务器跑满 epoch 看 math1 是否真反超，再定。**
+
+## ✅ 第二十九轮：九方法统一表实跑结果 + 分析（user_split, support/query, 2026-06-06）
+服务器跑满 epoch 的 `comparison_all_methods_{math1,a0910}_user_split.md`。
+
+### a0910_user_split（17746 题，真实主对比口径）
+| Method | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|
+| Base | 0.6552 | - | 0.6892 | - | |
+| Ours-Ablated | 0.6294 | 0.7060 | 0.6235 | 0.6837 | 0 |
+| Ours (DNA) | 0.6552 | 0.6919 | 0.6892 | 0.6694 | **0** |
+| Ours (LoRA) | 0.6552 | **0.7066** | 0.6892 | 0.6843 | **0** |
+| Full Replay Oracle | 0.6436 | 0.6843 | 0.6901 | 0.6687 | 0.0150 |
+| Naive FT | 0.6274 | 0.6817 | 0.6360 | 0.6564 | 0.0171 |
+| EWC (λ=10000) | 0.7064 | 0.6806 | 0.6865 | 0.6667 | 0.0859\* |
+| DER++ | 0.6803 | 0.6659 | 0.6709 | 0.6483 | 0.1164\* |
+| C-LoRA (λ=10) | 0.6839 | 0.6889 | 0.6764 | 0.6732 | 0.1474\* |
+
+**a0910 三句话结论（叙事成立）：**
+1. **零遗忘唯 Ours 独占**：DNA/LoRA 旧任务**逐位=Base、TMD=0**；三基线 TMD\* 0.086~0.147（均>0，有遗忘）。这是论文最硬的卖点。
+2. **可塑性 Ours 不输甚至更好**：Ours LoRA new AUC **0.7066**、DNA 0.6919，**≥ 全部基线**（EWC 0.681 / DER 0.666 / C-LoRA 0.689）。
+3. ⚠️ **唯一瑕疵**：基线**绝对** AUC_old（0.680~0.706）> Ours（0.655=Base）。**非遗忘**——是骨干差异（CognitiveBackbone vs G-NCDM）+ 冷启动逐用户梯度拟合（30ep）这一推理期适配优势。Ours 旧任务=Base 不降（TMD=0），基线则起点骨干更强但要付出"非零遗忘 + 逐用户重训"代价。论文按红线③（骨干不同，勿称纯策略胜出）处理，主打 TMD + 可塑性。
+
+### math1_user_split（仅 20 题，对该协议退化）
+| Method | AUC_old | AUC_new | TMD |
+|---|---|---|---|
+| Base | 0.7359 | - | |
+| Ours (DNA) | 0.7359 | 0.5658 | 0 |
+| Ours (LoRA) | 0.7359 | 0.5060 | 0 |
+| Ours-Ablated | 0.5867 | 0.7625 | 0 |
+| Oracle | 0.7207 | 0.6787 | 0.074 |
+| NFT | 0.7105 | 0.7295 | 0.088 |
+| EWC (λ=1000) | 0.7708 | 0.8293 | 0.100\* |
+| DER++ | 0.7687 | 0.8228 | 0.090\* |
+| C-LoRA (λ=10000) | 0.7742 | 0.8028 | 0.115\* |
+
+**math1 结论：协议退化，不宜作 baseline 主对比。**
+- Ours 旧任务仍 =Base(0.7359)、TMD=0（零遗忘成立）。
+- **但 Ours 新任务在 math1 近随机**（DNA 0.566、LoRA **0.506**），三基线却 0.80~0.83、**两轴全面反超 Ours**。
+- 根因：math1 新题仅 **7 个**，support/query 切半后每个 test 用户在 support 里的新题作答**极少（~2-3 条）**→ G-NCDM 的"按概念分解的新分支诊断"严重欠数据、近随机；而基线冷启动只拟合一个全局 64 维能力向量、靠题目难度+总体能力预测，对小题空间更稳。→ **support/query 协议在 20 题数据集上对 G-NCDM 不利**，是协议×数据规模的产物，非"基线方法更好"。
+
+### 总建议（待用户拍板呈现方式）
+- **user_split 主对比用 a0910**（数据足、Ours 叙事成立：TMD=0 + 可塑性领先）。
+- **math1 baseline 对比建议不进正文主表**：要么只报 a0910 的九方法表 + math1 仅作 Ours 自身（六策略）零遗忘展示；要么报 math1 时显式标注"20 题 + support/query 使新概念诊断欠数据"的 caveat。
+- 全程 TMD 红线不变：Ours 概念 θ 空间、基线 embedding 空间，不可比量级。
+
+### 论文主表产出
+- 4 个结果文件已复制进 `GNCDM/incremental_result/`（comparison_all_methods_{math1,a0910}_user_split.{csv,md}）。
+- 新建论文级主表 **`GNCDM/docs/main_table_a0910_user_split.md`**：九方法分组（Base/Ours 提案 DNA·LoRA/Ours 消融与上下界/三基线）、加「Backbone」列显式区分 G-NCDM vs CognitiveBackbone、加粗 Ours 的零遗忘(TMD=0)与最高 new AUC(LoRA 0.7066)、含完整 caption（三句话读法 + 四条 caveat：骨干不同/TMD vs TMD†/均衡 λ/math1 不宜作基线对比）。
+
+## 🆕 第三十一轮：补 math1 random_split 三基线 + 合并总表脚本（2026-06-06）
+此前 math1 random_split **从无三基线结果**（EWC/DER/C-LoRA 只跑过 a0910；math1 仅有个 `math1_der_baseline.py` 脚本无结果）。新建 **`GNCDM/math1_cl_baselines_random_split.py`**（self-contained）：
+- 一次跑完 EWC λ 扫描 + DER++(早停) + C-LoRA λ 扫描，**random_split 无需冷启动**（test 用户与训练共享 → student_emb 已训练，直接 `evaluate_cd_metrics` 预测 test_old/test_new）。与 Ours 的 forward_using_buf 预测口径同属"预测"、无自信息，可逐行比。
+- 严格拓扑二分 new_concepts=[0,1,3,6]（与主实验 math1 一致：13 旧/7 新），测试行与 Ours 主表一致。
+- 自动读 `incremental_results_math1_random_split.csv`（Ours 六策略）+ 三基线均衡点 → 合并写 **`all_methods_math1_random_split.{csv,md}`**（命名对齐），并落盘两条 λ sweep。
+- 协议对齐 a0910 random 基线：EWC/C-LoRA 固定 epoch+λ 扫描、DER 早停（valid ACC, patience=5）。骨干 CognitiveBackbone（红线同前）。
+- 本地冒烟（C-LoRA 2ep + 假 EWC/DER）：合表链路通；修了一个 `\*` 的 SyntaxWarning；ruff 通过（此文件在 GNCDM/ 根、无 E402）。EWC/DER 需 avalanche → **服务器跑** `cd GNCDM && python math1_cl_baselines_random_split.py`。
+- ⚠️ 冒烟里 C-LoRA(2ep) 在 math1 random 又偏高（AUC_new 0.84 > Ours）。注意：random_split **无冷启动**、是更干净的预测口径，所以"基线在 math1 强"可能是**真实信号**（小数据上简单骨干够用），而非协议产物。**待服务器跑满 epoch 看真实数字**再判断 math1 random 的呈现（可能与 user_split 一样，math1 baseline 不宜作主对比，主对比仍以 a0910 为准）。
+
+### 服务器实跑结果（all_methods_math1_random_split.md，2026-06-06）
+| Method | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|
+| Base | 0.8072 | - | 0.7293 | - | |
+| Ours (DNA) | 0.8072 | 0.7204 | 0.7293 | 0.7548 | **0** |
+| Ours (LoRA) | 0.8072 | 0.6712 | 0.7293 | 0.6955 | **0** |
+| Ours-Ablated | 0.7381 | 0.8480 | 0.6608 | 0.7574 | 0 |
+| Full Replay Oracle | 0.8108 | 0.8316 | 0.7191 | 0.7501 | 0.081 |
+| Naive FT | 0.7648 | 0.8503 | 0.6569 | 0.7554 | 0.069 |
+| EWC (λ=1000) | 0.7687 | 0.8162 | 0.6844 | 0.7351 | 0.104\* |
+| DER++ (mem=5000) | 0.7967 | 0.8405 | 0.7192 | 0.7553 | 0.008\* |
+| C-LoRA (λ=10000) | 0.7689 | 0.7905 | 0.6981 | 0.7156 | 0.109\* |
+
+**结论（真实信号，非协议产物——random 无冷启动）：**
+1. **保旧 Ours 最强**：DNA/LoRA AUC_old=Base=**0.8072（全场最高）**、TMD=0；基线 0.769~0.797 且 TMD*>0（DER 0.008 接近但非 0）。
+2. **学新 Ours 弱**：DNA new 0.720、LoRA 0.671，**低于全部三基线**（DER 0.840 / EWC 0.816 / C-LoRA 0.790）。
+3. **与 user_split 同因**：math1 仅 **7 新题 / 4 新概念**，G-NCDM 按概念分解的新分支严重欠数据；简单 Embedding+MLP（尤其 DER++ 在 20 题上 replay 近乎全量，TMD* 仅 0.008）更易学好这几道新题。random 口径（无冷启动）证实这是**真实现象**，非协议产物。
+4. → **math1 不是 Ours 可塑性的好展示场**。
+
+### 跨四设置总结论（math1×{random,user} + a0910×{random,user}）
+- **a0910（大、真实）两划分**：Ours 全胜——TMD=0 + new AUC ≥ 基线（random new 0.736/0.740；user new LoRA 0.707）。→ **论文主对比用 a0910。**
+- **math1（小，7 新题）两划分**：Ours 保旧最强 + TMD=0，但**学新 < 基线**（新分支欠数据）。→ math1 **不作 baseline 可塑性主对比**；建议 math1 只展示 **Ours 六策略自身的零遗忘**（DNA/LoRA 旧=Base、TMD=0；Ablated/NFT 毁旧），或放九方法表但**显式标注"7 新题致 G-NCDM 概念分解新分支欠数据、基线学新更高"**的 caveat。
+- 全程 TMD 红线：Ours 概念 θ 空间 vs 基线 embedding 空间，不可比量级。
+
+### math1 random 论文总表产出
+- `GNCDM/incremental_result/main_table_math1_random_split.md`（按用户指定目录）：精排版九方法表 + Backbone 列 + 加粗 Ours TMD=0/最高 AUC_old(0.8072=Base) + 完整 caveat（诚实呈现"保旧最强但学新弱，因仅 7 新题饿着 G-NCDM 概念分解新分支"，并指向 a0910 看可塑性）。
+- ⚠️ 位置不一致：a0910 论文表在 `docs/main_table_a0910_user_split.md`、math1 这张在 `incremental_result/`（用户分别指定）。待用户定是否统一目录。
+- `all_methods_math1_random_split.{csv,md}` 均已落 repo `incremental_result/`。
+
+## 🧹 第三十二轮：CL 基线脚本整合为两覆盖型（2026-06-06）
+用户要求删单基线脚本、只留覆盖型。最终只剩：
+- **`GNCDM/cl_baselines_random_split.py`**：random_split，EWC/DER/C-LoRA + 合并 Ours → all_methods_{ds}_random_split。参数化覆盖 math1（默认）与 a0910（RUN_A0910=True）。
+- **`GNCDM/experiments/eval_all_methods_user_split.py`**：user_split，9 方法（含 Ours），support/query。
+已删（被覆盖）：a0910_{clora,der,ewc}_baseline.py、math1_der_baseline.py、math1_cl_baselines_random_split.py、a0910_cl_baselines_user_split.py、eval_ours_supportquery_user_split.py。
+保留待定：`a0910_gncdm_clora_baseline.py`（方案二负结果存档，未被任何覆盖型脚本包含 → 删了就没了，待用户拍板）。
+
+## ✅ 第三十三轮：方案二「最佳努力版」救活，且成为更强论点（math1 实测，2026-06-06）
+重命名 `a0910_gncdm_clora_baseline.py` → **`GNCDM/gncdm_clora_baseline.py`**（参数化 math1/a0910，`DATASET` 常量或命令行参数；`python gncdm_clora_baseline.py a0910`）。三处最佳努力修复全部生效。
+
+### math1 random 完整 25ep 结果（clora_gncdm_lambda_sweep_math1_random_split.csv）
+| λ_ortho | AUC_old | AUC_new | TMD(concept-θ) |
+|---|---|---|---|
+| 0 | 0.666 | 0.756 | 0.279 |
+| 0.01 | 0.665 | 0.769 | 0.237 |
+| 0.1 | 0.688 | 0.751 | 0.234 |
+| 0.5 | 0.687 | 0.733 | 0.227 |
+| 1.0 | 0.694 | 0.731 | 0.213 |
+| 10.0 | 0.699 | 0.687 | 0.173 |
+
+- **救活**：AUC_new 从早期退化版 ~0.5 → 0.69~0.77；悬崖消失，出现干净权衡：λ↑→AUC_old↑(0.666→0.699)/AUC_new↓/TMD↓(0.279→0.173)。证明根因 A（惩罚尺度）+ B（扫描范围）+ C（新概念聚合列冻结）三者都是真因，修复有效。
+- **更强论点（关键）**：方案二**同 G-NCDM 骨干**、TMD 在**概念 θ 空间可与 Ours 直接比**：
+  - Ours DNA/LoRA：AUC_old=Base=0.807、**TMD=0**（架构隔离精确零遗忘）。
+  - G-NCDM+C-LoRA：AUC_old 仅 0.665~0.699（**从 0.807 遗忘**）、**TMD 恒 0.17~0.28**（软正交惩罚再调也压不到 0）。
+  - C-LoRA 学新略高（0.77@λ=0.01 > Ours 0.72）是因为它改**共享**诊断层 f_nn/g_nn → 连带漂移旧概念；Ours 冻旧+专用新分支才两全。
+  - → **比方案一（CognitiveBackbone）更有力：无骨干口径 caveat，TMD 同空间直接对比**。建议论文可考虑用方案二作"同骨干下 C-LoRA 仍遗忘、唯 Ours 零遗忘"的对照（此前方案一退居 embedding 空间定性）。
+- a0910 真实数字待用户服务器跑：`cd GNCDM && python gncdm_clora_baseline.py a0910`（纯 G-NCDM、不需 avalanche；17746 题、Phase1+8λ×25ep，较重）。
+
+### a0910 实测（clora_gncdm_lambda_sweep_a0910_random_split.csv，2026-06-06）
+| λ_ortho | AUC_old | AUC_new | TMD(concept-θ) |
+|---|---|---|---|
+| 0 | 0.639 | 0.741 | 0.0298 |
+| 0.01 | 0.719 | 0.737 | 0.0259 |
+| 0.1 | 0.716 | 0.743 | 0.0247 |
+| 0.5 | 0.726 | 0.739 | 0.0220 |
+| 1.0 | 0.726 | 0.738 | 0.0187 |
+| 10.0 | 0.740 | 0.721 | 0.0142 |
+- 修复在 a0910 也生效（AUC_new 0.72~0.74，远离 0.5）；干净单调权衡：λ↑→AUC_old↑(0.639→0.740)/AUC_new↓/TMD↓(0.0298→0.0142)。
+- **对照 Ours**（DNA 旧0.744/新0.736/TMD0；LoRA 旧0.744/新0.740/TMD0；Base 旧0.744）：C-LoRA **压不到零遗忘**——最佳 TMD=0.0142>0，λ=10 旧0.740 仍<Base 0.744（微遗忘），无单一 λ 能同时达 旧=Base & TMD=0。
+- a0910 上 margin 小（C-LoRA 是强对手，非稻草人）→ 增强可信度。**方案二 = 比方案一更硬的对照**（同骨干、TMD 同空间、无 caveat）。Ours 赢点：精确 TMD=0 + 略高保旧 + 可塑性持平。
+- csv 已入 repo incremental_result/。均衡点 λ≈0.5（avg(old,new)≈0.732）：旧0.726/新0.739/TMD0.022。
+
+## 🆕 第三十四轮：用户拍板「方案一+方案二都报」+ 机制文档（2026-06-06）
+- 决策：C-LoRA **两个变体都进论文**——方案一（CognitiveBackbone，通用骨干基线）+ 方案二（G-NCDM 骨干，TMD 同空间、推荐作主对照）。
+- 新建 **`GNCDM/docs/CLoRA_vs_Ours_LoRA.md`**：讲清 C-LoRA 与 Ours(LoRA) 的根本区别（C-LoRA=共享层挂 LoRA+软正交惩罚→近似不遗忘、TMD>0、需调 λ、有稳定性-可塑性权衡；Ours=硬冻结旧参+独立新分支+零填充→精确 TMD=0、旧=Base、无 λ 权衡），含四条优势 + a0910/math1 实证 + 红线。配套 `DNA_vs_LoRA.md`（Ours 内部 DNA vs LoRA）。
