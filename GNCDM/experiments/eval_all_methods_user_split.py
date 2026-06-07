@@ -605,7 +605,10 @@ def main():
             "test": os.path.join(a0910, "new_user_split", "test.csv"),
             "Q": os.path.join(a0910, "Q_matrix.npy"),
             "n_user": 4163, "n_item": 17746, "n_know": 123,
-            "new_concepts": sorted(nc), "alpha": 0.9,
+            # alpha=0.6：a0910 user_split 经 validation 选定（sweep_alpha_a0910_user 全扫 0.1~0.95，
+            # valid_ACC 在 0.6 见顶 0.6989；test 端 ACC/F1 最优、test_AUC 仅差 0.3 峰值约 0.0015）。
+            # 远优于原作者默认 0.9（test_AUC/ACC 各高约 0.019/0.011）。
+            "new_concepts": sorted(nc), "alpha": 0.6,
         }
 
     for split_name, cfg in configs.items():

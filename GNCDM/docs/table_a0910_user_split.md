@@ -5,16 +5,17 @@ for each held-out test learner, half of their responses (support) diagnose the l
 **disjoint** other half (query) is predicted. Old-task / new-task metrics are computed on the
 query responses to old / new items. Every method is scored on the **identical query rows**, so
 AUC/ACC/F1/RMSE are directly comparable row-by-row. Higher is better except RMSE; TMD lower is
-better (0 = no forgetting).
+better (0 = no forgetting). The G-NCDM rows use **alpha = 0.6** (validation-selected for this
+split; sweep over 0.1–0.95 by valid ACC).
 
 | Method | Backbone | AUC_old | AUC_new | ACC_old | ACC_new | F1_old | F1_new | RMSE_old | RMSE_new | TMD |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Base (old task only) | G-NCDM | 0.6552 | – | 0.6892 | – | 0.7824 | – | 0.4590 | – | – |
-| **Ours (Dynamic DNA)** | G-NCDM | 0.6552 | 0.6919 | 0.6892 | 0.6694 | 0.7824 | 0.7730 | 0.4590 | 0.4568 | **0.0000** |
-| **Ours (LoRA)** | G-NCDM | 0.6552 | **0.7066** | 0.6892 | 0.6843 | 0.7824 | **0.7809** | 0.4590 | 0.4520 | **0.0000** |
-| Ours-Ablated (no ⊥-mask) | G-NCDM | 0.6294 | 0.7060 | 0.6235 | 0.6837 | 0.7108 | 0.7803 | 0.4808 | 0.4541 | 0.0000 |
-| Full-Replay Oracle | G-NCDM | 0.6436 | 0.6843 | 0.6901 | 0.6687 | 0.7854 | 0.7735 | 0.4632 | 0.4617 | 0.0150 |
-| Naive-FT | G-NCDM | 0.6274 | 0.6817 | 0.6360 | 0.6564 | 0.7321 | 0.7452 | 0.4834 | 0.4628 | 0.0171 |
+| Base (old task only) | G-NCDM | 0.6607 | – | 0.6942 | – | 0.7869 | – | 0.4564 | – | – |
+| **Ours (Dynamic DNA)** | G-NCDM | 0.6607 | 0.7060 | 0.6942 | 0.6752 | 0.7869 | 0.7791 | 0.4564 | 0.4532 | **0.0000** |
+| **Ours (LoRA)** | G-NCDM | 0.6607 | **0.7224** | 0.6942 | **0.6982** | 0.7869 | **0.7832** | 0.4564 | 0.4474 | **0.0000** |
+| Ours-Ablated (no ⊥-mask) | G-NCDM | 0.6295 | 0.7180 | 0.4446 | 0.6916 | 0.3806 | 0.7694 | 0.5473 | 0.4515 | 0.0000 |
+| Full-Replay Oracle | G-NCDM | 0.6560 | 0.6925 | 0.7012 | 0.6675 | 0.7955 | 0.7757 | 0.4564 | 0.4598 | 0.0265 |
+| Naive-FT | G-NCDM | 0.6137 | 0.6850 | 0.5017 | 0.6789 | 0.5129 | 0.7593 | 0.5946 | 0.4621 | 0.0524 |
 | EWC (λ=10⁴) | CognitiveBackbone | 0.7064 | 0.6806 | 0.6865 | 0.6667 | 0.7691 | 0.7437 | 0.4972 | 0.5066 | 0.0859 † |
 | DER++ (mem=5000) | CognitiveBackbone | 0.6803 | 0.6659 | 0.6709 | 0.6483 | 0.7589 | 0.7287 | 0.5024 | 0.5103 | 0.1164 † |
 | C-LoRA (λ=10) | CognitiveBackbone | 0.6839 | 0.6889 | 0.6764 | 0.6732 | 0.7666 | 0.7569 | 0.4676 | 0.4740 | 0.1474 † |
@@ -22,14 +23,15 @@ better (0 = no forgetting).
 **Reading the table**
 
 1. **Zero forgetting is unique to Ours.** Dynamic-DNA and LoRA leave the old-task metrics
-   *bit-identical to Base* (AUC_old/ACC_old/F1_old equal Base's 0.6552/0.6892/0.7824) with
+   *bit-identical to Base* (AUC_old/ACC_old/F1_old equal Base's 0.6607/0.6942/0.7869) with
    **TMD = 0** — architectural isolation guarantees no drift. Every continual-learning baseline
    forgets (TMD > 0: 0.086–0.147).
-2. **Plasticity is competitive or better.** Ours (LoRA) attains the **highest new-task AUC
-   (0.7066)** and F1 (0.7809) of all nine methods; Ours (DNA) (0.6919) also matches or exceeds
-   EWC/DER++/C-LoRA (0.666–0.689). Ours learns the new concepts without any replay or retraining
-   of old parameters.
-3. **On the absolute old-task AUC the baselines read slightly higher (0.680–0.706 vs 0.6552).**
+2. **Plasticity is competitive or better — Ours (LoRA) even beats the Full-Replay Oracle.**
+   Ours (LoRA) attains the **highest new-task AUC (0.7224)** and F1 (0.7832) of all nine methods,
+   exceeding even the Full-Replay Oracle upper bound (0.6925 AUC_new) that retrains on all old +
+   new data; Ours (DNA) (0.7060) also matches or exceeds EWC/DER++/C-LoRA (0.666–0.689). Ours
+   learns the new concepts without any replay or retraining of old parameters.
+3. **On the absolute old-task AUC the baselines read slightly higher (0.680–0.706 vs 0.6607).**
    This is **not** a forgetting effect — Ours' old task equals Base by construction (TMD = 0).
    It reflects (i) a *different backbone* (CognitiveBackbone vs the monotonicity-constrained
    generative G-NCDM) and (ii) the baselines' **per-learner cold-start fitting** at inference
