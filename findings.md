@@ -848,3 +848,33 @@ a0910 `new_user_split` **用户完全互斥**（test∩train=0，test 499 用户
 ### ⚠️ 重要澄清：TopologyAwareDecoupledLoss 不是原论文的
 - `docs/paper.pdf` = "Li et al., 2026, Toward Fair and Efficient Intelligent Learning: A Generative Cognitive Diagnosis Approach"（arXiv:2507.09831）。该论文 G-NCDM **用普通交叉熵**，且只覆盖"新学习者"归纳诊断，**不含新题/新知识的增量学习**。
 - `incremental/loss.py::TopologyAwareDecoupledLoss` 是**本项目自己的增量扩展**（git：与 expand_topology/DNA/LoRA 同在 "第一版上传我的项目代码" commit、置于 incremental/），**原论文里没有**，此前也从未接入主实验。→ 用户在论文中找不到它是正常的；增量学习这部分是待写的新贡献，该损失是其候选组件（结论：宜作 ablation，不宜作主方法）。
+
+## ✅ 第三十八轮：a0910 user_split alpha 选定 0.6——Ours(LoRA) 反超 Oracle（2026-06-07）
+用户在 GPU 服务器上对 a0910 user_split 做 alpha 扫描并定稿，本轮把结果落 repo。
+
+### alpha 选定（方法学守红线）
+- **全扫 0.1~0.95**，support/query 同口径（frac=0.5, seed=7，与 `eval_all_methods_user_split.py` / [[transductive-baseline-coldstart-leakage]] 一致），**按 valid_ACC 选 alpha 再报 test**（不挑 test）。
+- **选定 alpha=0.6**：valid_ACC 在 0.6 见顶（≈0.6989）；优于原作者默认 0.9（test_AUC/ACC 各高约 0.019/0.011）。
+- 扫描脚本属探索性，跑完即删（见 [[keep-auxiliary-scripts-out-of-repo]]）：`sweep_alpha_a0910_user.py` / `sweep_alpha03_a0910_user.py` / `eval_ours_only_a0910_user.py` 已删；本机一份只含 0.9 单行的 SMOKE 残留 CSV 也已清。
+
+### 六策略实测（a0910 user_split, alpha=0.6, support/query 同口径）
+| 策略 | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|
+| Base | 0.6607 | - | 0.6942 | - | - |
+| **Ours (LoRA)** | 0.6607 | **0.7224** | 0.6942 | **0.6982** | **0.0000** |
+| Ours (Dynamic DNA) | 0.6607 | 0.7060 | 0.6942 | 0.6752 | **0.0000** |
+| Ours-Ablated | 0.6295 | 0.7180 | 0.4446 | 0.6916 | 0.0000 |
+| Full Replay Oracle | 0.6560 | 0.6925 | 0.7012 | 0.6675 | 0.0265 |
+| Naive FT (NFT) | 0.6137 | 0.6850 | 0.5017 | 0.6789 | 0.0524 |
+
+- **新卖点**：Ours(LoRA) 的 **AUC_new=0.7224 全场最高、且超过 Full-Replay Oracle 上界（0.6925）**——架构隔离零遗忘（AUC_old=Base、TMD=0）的同时可塑性反超「重训全量旧+新」的 oracle。
+- 基线（EWC/DER++/C-LoRA）与 alpha 无关、同口径，三行原样保留拼接。
+
+### 四划分最优 alpha（互不相同，已固化）
+math1 random=0.20 / math1 user=0.70 / a0910 random=0.9（论文默认）/ **a0910 user=0.6（本轮）**。详见 [[per-split-optimal-alpha]]；CLAUDE.md 已从含糊的「a0910=0.9」拆成四项。
+
+### 落盘
+- `incremental_result/all_methods_a0910_user_split.csv`：6 行 Ours 换 alpha=0.6 全精度数字，3 行基线不变。
+- `docs/all_methods_a0910_user_split.md` / `docs/table_a0910_user_split.md`：同步表格 + 论文版补「LoRA 超 Oracle」结论 + 标注 alpha=0.6。
+- `eval_all_methods_user_split.py`：a0910 user 硬编码 alpha=0.6。
+- commit `829f3e7`（note 6.7），已推 `v2`。
