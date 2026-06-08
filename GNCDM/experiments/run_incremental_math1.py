@@ -410,31 +410,50 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
 
 
 def main():
+    """单文件总调度：一次产出 math1 两个划分各自的「九方法」对比表（6 Ours + 3 基线）。
+
+    per-split 最优 alpha（findings.md 第十八轮）：random=0.20（预测口径 Base ACC_old 顶点）、
+    user=0.70（重构口径名义最优）。alpha 仅影响 Ours / G-NCDM 行；基线无 alpha。
+    - math1_random_split：run_experiment(buf) 出 6 Ours → cl_baselines_random_split.run_one()
+      跑 EWC/DER++/C-LoRA 直接预测并合并。
+    - math1_user_split：eval_all_methods_user_split.run_one() 在同一 support/query 上一次跑完
+      6 Ours + 3 基线。
+    需 avalanche（EWC/DER）。math1：4209 users × 20 items × 11 concepts；ΔK={0,1,3,6}。
+    """
+    import cl_baselines_random_split as clbase
+    from eval_all_methods_user_split import run_one as user_split_all_methods
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device = {device}")
     repo_root = os.path.dirname(gncdm_dir)
     Q_path = os.path.join(DATA_DIR, "math1_Q_matrix.npy")
+    NEW = [0, 1, 3, 6]
 
-    # 每个划分用 alpha 扫描得到的最优值（findings.md 第十八轮）：
-    #   random_split（预测口径）Base ACC_old 顶点 → alpha=0.20
-    #   （0.05 步长扫描 sweep_base_alpha_random.py：Base test ACC_old 在 0.20 见顶 0.7293）
-    #   user_split（重构口径）名义最优 → alpha=0.70
-    splits = [
-        ("math1_random_split", "buf", 0.20,
-         os.path.join(DATA_DIR, "math1_train_0.8_0.2.csv"),
-         os.path.join(DATA_DIR, "math1_valid_0.8_0.2.csv"),
-         os.path.join(DATA_DIR, "math1_test_0.8_0.2.csv")),
-        ("math1_user_split", "recon", 0.70,
-         os.path.join(repo_root, "data", "math1", "user_split", "train.csv"),
-         os.path.join(repo_root, "data", "math1", "user_split", "valid.csv"),
-         os.path.join(repo_root, "data", "math1", "user_split", "test.csv")),
-    ]
-    # math1：4209 users × 20 items × 11 concepts；ΔK={0,1,3,6}（冷门概念，旧题/新题=13/7）
-    for split_name, mode, alpha, tr, va, te in splits:
-        set_seed(42)  # 每个划分重置随机种子，保证可复现
-        run_experiment(split_name, mode, tr, va, te, Q_path, device,
-                       n_user=4209, n_item_total=20, n_know_total=11,
-                       new_concepts=[0, 1, 3, 6], alpha=alpha)
+    # 1) random_split（alpha=0.20）：Ours 6 策略（buf 预测）→ CSV，再 3 基线直接预测并合并
+    rnd_tr = os.path.join(DATA_DIR, "math1_train_0.8_0.2.csv")
+    rnd_va = os.path.join(DATA_DIR, "math1_valid_0.8_0.2.csv")
+    rnd_te = os.path.join(DATA_DIR, "math1_test_0.8_0.2.csv")
+    set_seed(42)
+    run_experiment("math1_random_split", "buf", rnd_tr, rnd_va, rnd_te, Q_path, device,
+                   n_user=4209, n_item_total=20, n_know_total=11,
+                   new_concepts=NEW, alpha=0.20)
+    clbase.run_one({
+        "name": "math1",
+        "train": rnd_tr, "valid": rnd_va, "test": rnd_te, "Q": Q_path,
+        "n_item": 20, "n_know": 11, "new_concepts": NEW,
+        "ours_csv": "incremental_results_math1_random_split.csv",
+    }, device)
+
+    # 2) user_split（alpha=0.70）：同一份 support/query 上一次跑完 6 Ours + 3 基线
+    user_split_all_methods("math1_user_split", {
+        "train": os.path.join(repo_root, "data", "math1", "user_split", "train.csv"),
+        "valid": os.path.join(repo_root, "data", "math1", "user_split", "valid.csv"),
+        "test": os.path.join(repo_root, "data", "math1", "user_split", "test.csv"),
+        "Q": Q_path, "n_user": 4209, "n_item": 20, "n_know": 11,
+        "new_concepts": NEW, "alpha": 0.70,
+    }, device)
+
+    print("\n全部完成：incremental_result/all_methods_math1_{random,user}_split.csv")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,9 @@ repo_root = os.path.dirname(gncdm_dir)
 DATA_DIR = os.path.join(repo_root, "data", "a0910")
 
 # a0910 规格（对齐原仓库 scripts/gncdm_a0910_user_split.sh）
-N_USER, N_ITEM, N_KNOW, ALPHA = 4163, 17746, 123, 0.9
+N_USER, N_ITEM, N_KNOW = 4163, 17746, 123
+# per-split 最优 alpha（仅影响 Ours / G-NCDM 行；基线无 alpha）
+ALPHA = {"a0910_random_split": 0.9, "a0910_user_split": 0.6}
 
 
 def auto_new_concepts(Q, new_item_frac=0.34):
@@ -47,7 +49,18 @@ def auto_new_concepts(Q, new_item_frac=0.34):
 
 
 def main():
+    """单文件总调度：一次产出 a0910 两个划分各自的「九方法」对比表（6 Ours + 3 基线）。
+
+    - a0910_random_split（alpha=0.9，预测口径）：run_experiment(buf) 出 6 Ours →
+      cl_baselines_random_split.run_one() 跑 EWC/DER++/C-LoRA 直接预测并合并。
+    - a0910_user_split（alpha=0.6，support/query 冷启动口径）：
+      eval_all_methods_user_split.run_one() 一次跑完 6 Ours + 3 基线。
+    需 avalanche；a0910 题量大(17746)，务必在 GPU 服务器上跑。
+    """
     import torch
+    import cl_baselines_random_split as clbase
+    from eval_all_methods_user_split import run_one as user_split_all_methods
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device = {device}")
     if device.type == "cpu":
@@ -60,21 +73,33 @@ def main():
     print(f"自动 ΔK：新概念={len(new_concepts)}/{N_KNOW}，"
           f"新题={int(touched.sum())} 旧题={int((~touched).sum())}（旧题不依赖新概念）")
 
-    splits = [
-        ("a0910_random_split", "buf",
-         os.path.join(DATA_DIR, "new_random_split", "train.csv"),
-         os.path.join(DATA_DIR, "new_random_split", "valid.csv"),
-         os.path.join(DATA_DIR, "new_random_split", "test.csv")),
-        ("a0910_user_split", "recon",
-         os.path.join(DATA_DIR, "new_user_split", "train.csv"),
-         os.path.join(DATA_DIR, "new_user_split", "valid.csv"),
-         os.path.join(DATA_DIR, "new_user_split", "test.csv")),
-    ]
-    for split_name, mode, tr, va, te in splits:
-        set_seed(42)
-        run_experiment(split_name, mode, tr, va, te, Q_path, device,
-                       n_user=N_USER, n_item_total=N_ITEM, n_know_total=N_KNOW,
-                       new_concepts=new_concepts, alpha=ALPHA)
+    rnd = os.path.join(DATA_DIR, "new_random_split")
+    usr = os.path.join(DATA_DIR, "new_user_split")
+
+    # 1) random_split：Ours 6 策略（buf 预测）→ CSV，再 3 基线直接预测并合并
+    set_seed(42)
+    run_experiment("a0910_random_split", "buf",
+                   os.path.join(rnd, "train.csv"), os.path.join(rnd, "valid.csv"),
+                   os.path.join(rnd, "test.csv"), Q_path, device,
+                   n_user=N_USER, n_item_total=N_ITEM, n_know_total=N_KNOW,
+                   new_concepts=new_concepts, alpha=ALPHA["a0910_random_split"])
+    clbase.run_one({
+        "name": "a0910",
+        "train": os.path.join(rnd, "train.csv"), "valid": os.path.join(rnd, "valid.csv"),
+        "test": os.path.join(rnd, "test.csv"), "Q": Q_path,
+        "n_item": N_ITEM, "n_know": N_KNOW, "new_concepts": "auto",
+        "ours_csv": "incremental_results_a0910_random_split.csv",
+    }, device)
+
+    # 2) user_split：同一份 support/query 上一次跑完 6 Ours + 3 基线
+    user_split_all_methods("a0910_user_split", {
+        "train": os.path.join(usr, "train.csv"), "valid": os.path.join(usr, "valid.csv"),
+        "test": os.path.join(usr, "test.csv"), "Q": Q_path,
+        "n_user": N_USER, "n_item": N_ITEM, "n_know": N_KNOW,
+        "new_concepts": new_concepts, "alpha": ALPHA["a0910_user_split"],
+    }, device)
+
+    print("\n全部完成：incremental_result/all_methods_a0910_{random,user}_split.csv")
 
 
 if __name__ == "__main__":
