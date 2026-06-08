@@ -37,6 +37,7 @@ SAVE_DIR = os.path.join(THIS_DIR, "incremental_result")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 RUN_A0910 = False  # 默认只跑 math1；置 True 也跑 a0910（题量大、较慢）
+RUN_JUNYI = True  # 也跑 junyi（5000×707×39）；合并 incremental_results_junyi_random_split.csv
 
 # ---- 骨干 / 训练超参（与原 a0910/math1 基线脚本一致）----
 EMBED_DIM = 64
@@ -506,6 +507,22 @@ def main():
                 "n_know": 123,
                 "new_concepts": "auto",
                 "ours_csv": "incremental_results_a0910_random_split.csv",
+            }
+        )
+    if RUN_JUNYI:
+        junyi = os.path.join(REPO_ROOT, "data", "junyi")
+        Q = np.load(os.path.join(junyi, "Q_matrix.npy"))
+        configs.append(
+            {
+                "name": "junyi",
+                "train": os.path.join(junyi, "new_random_split", "train.csv"),
+                "valid": os.path.join(junyi, "new_random_split", "valid.csv"),
+                "test": os.path.join(junyi, "new_random_split", "test.csv"),
+                "Q": os.path.join(junyi, "Q_matrix.npy"),
+                "n_item": int(Q.shape[0]),
+                "n_know": int(Q.shape[1]),
+                "new_concepts": "auto",
+                "ours_csv": "incremental_results_junyi_random_split.csv",
             }
         )
     for cfg in configs:

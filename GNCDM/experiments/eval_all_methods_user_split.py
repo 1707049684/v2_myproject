@@ -53,6 +53,7 @@ from run_incremental_math1 import (
     strict_bipartition,
     train_real,
 )
+from run_incremental_a0910 import auto_new_concepts
 from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -65,6 +66,8 @@ SPLIT_SEED = 7
 
 # ---- 是否也跑 a0910（重；默认只跑 math1）----
 RUN_A0910 = False
+# ---- 是否也跑 junyi（5000×707×39，中等；user_split alpha=0.6）----
+RUN_JUNYI = True
 
 # ---- 基线骨干 / 冷启动超参（与 a0910_cl_baselines_user_split.py 对齐）----
 EMBED_DIM = 64
@@ -609,6 +612,23 @@ def main():
             # valid_ACC 在 0.6 见顶 0.6989；test 端 ACC/F1 最优、test_AUC 仅差 0.3 峰值约 0.0015）。
             # 远优于原作者默认 0.9（test_AUC/ACC 各高约 0.019/0.011）。
             "new_concepts": sorted(nc), "alpha": 0.6,
+        }
+
+    if RUN_JUNYI:
+        junyi = os.path.join(repo_root, "data", "junyi")
+        Q = np.load(os.path.join(junyi, "Q_matrix.npy"))
+        n_user = 0
+        for f in ("train.csv", "valid.csv", "test.csv"):
+            n_user = max(n_user, int(pd.read_csv(
+                os.path.join(junyi, "new_user_split", f))["user_id"].max()) + 1)
+        configs["junyi_user_split"] = {
+            "train": os.path.join(junyi, "new_user_split", "train.csv"),
+            "valid": os.path.join(junyi, "new_user_split", "valid.csv"),
+            "test": os.path.join(junyi, "new_user_split", "test.csv"),
+            "Q": os.path.join(junyi, "Q_matrix.npy"),
+            "n_user": n_user, "n_item": Q.shape[0], "n_know": Q.shape[1],
+            # alpha=0.6：与 a0910 user_split 同值（per-split 最优待 sweep 复核）。
+            "new_concepts": auto_new_concepts(Q, 0.34), "alpha": 0.6,
         }
 
     for split_name, cfg in configs.items():
