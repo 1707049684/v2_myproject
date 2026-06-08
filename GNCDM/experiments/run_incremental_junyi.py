@@ -22,8 +22,8 @@ from run_incremental_a0910 import auto_new_concepts
 repo_root = os.path.dirname(gncdm_dir)
 DATA_DIR = os.path.join(repo_root, "data", "junyi")
 
-# alpha：先用初值 0.9 跑通（与 a0910 random 一致）；per-split 最优留作后续 sweep。
-ALPHA = 0.9
+# 每个划分各自的 alpha（per-split，与 a0910 同值）；最优值待后续 sweep 复核。
+ALPHA = {"junyi_random_split": 0.9, "junyi_user_split": 0.6}
 
 
 def main():
@@ -63,7 +63,7 @@ def main():
         set_seed(42)
         run_experiment(split_name, mode, tr, va, te, Q_path, device,
                        n_user=n_user, n_item_total=n_item, n_know_total=n_know,
-                       new_concepts=new_concepts, alpha=ALPHA)
+                       new_concepts=new_concepts, alpha=ALPHA[split_name])
 
 
 if __name__ == "__main__":
