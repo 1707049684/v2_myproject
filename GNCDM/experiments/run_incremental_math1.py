@@ -409,52 +409,12 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
     return results
 
 
-def main():
-    """单文件总调度：一次产出 math1 两个划分各自的「九方法」对比表（6 Ours + 3 基线）。
-
-    per-split 最优 alpha（findings.md 第十八轮）：random=0.20（预测口径 Base ACC_old 顶点）、
-    user=0.70（重构口径名义最优）。alpha 仅影响 Ours / G-NCDM 行；基线无 alpha。
-    - math1_random_split：run_experiment(buf) 出 6 Ours → cl_baselines_random_split.run_one()
-      跑 EWC/DER++/C-LoRA 直接预测并合并。
-    - math1_user_split：eval_all_methods_user_split.run_one() 在同一 support/query 上一次跑完
-      6 Ours + 3 基线。
-    需 avalanche（EWC/DER）。math1：4209 users × 20 items × 11 concepts；ΔK={0,1,3,6}。
-    """
-    import cl_baselines_random_split as clbase
-    from eval_all_methods_user_split import run_one as user_split_all_methods
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device = {device}")
-    repo_root = os.path.dirname(gncdm_dir)
-    Q_path = os.path.join(DATA_DIR, "math1_Q_matrix.npy")
-    NEW = [0, 1, 3, 6]
-
-    # 1) random_split（alpha=0.20）：Ours 6 策略（buf 预测）→ CSV，再 3 基线直接预测并合并
-    rnd_tr = os.path.join(DATA_DIR, "math1_train_0.8_0.2.csv")
-    rnd_va = os.path.join(DATA_DIR, "math1_valid_0.8_0.2.csv")
-    rnd_te = os.path.join(DATA_DIR, "math1_test_0.8_0.2.csv")
-    set_seed(42)
-    run_experiment("math1_random_split", "buf", rnd_tr, rnd_va, rnd_te, Q_path, device,
-                   n_user=4209, n_item_total=20, n_know_total=11,
-                   new_concepts=NEW, alpha=0.20)
-    clbase.run_one({
-        "name": "math1",
-        "train": rnd_tr, "valid": rnd_va, "test": rnd_te, "Q": Q_path,
-        "n_item": 20, "n_know": 11, "new_concepts": NEW,
-        "ours_csv": "incremental_results_math1_random_split.csv",
-    }, device)
-
-    # 2) user_split（alpha=0.70）：同一份 support/query 上一次跑完 6 Ours + 3 基线
-    user_split_all_methods("math1_user_split", {
-        "train": os.path.join(repo_root, "data", "math1", "user_split", "train.csv"),
-        "valid": os.path.join(repo_root, "data", "math1", "user_split", "valid.csv"),
-        "test": os.path.join(repo_root, "data", "math1", "user_split", "test.csv"),
-        "Q": Q_path, "n_user": 4209, "n_item": 20, "n_know": 11,
-        "new_concepts": NEW, "alpha": 0.70,
-    }, device)
-
-    print("\n全部完成：incremental_result/all_methods_math1_{random,user}_split.csv")
-
-
+# 本模块是核心库：run_experiment / build_log_mat / strict_bipartition / IDCDataset 等被
+# 所有拆分脚本与 eval_all_methods_user_split / cl_baselines_random_split 复用，请勿改动其接口。
+# 跑实验请用拆分脚本（每个只跑一个划分，互不影响）：
+#   python run_incremental_math1_random_split.py   # alpha=0.20 → all_methods_math1_random_split
+#   python run_incremental_math1_user_split.py     # alpha=0.70 → all_methods_math1_user_split
 if __name__ == "__main__":
-    main()
+    print("本文件已拆分。请运行："
+          "\n  python run_incremental_math1_random_split.py"
+          "\n  python run_incremental_math1_user_split.py")
