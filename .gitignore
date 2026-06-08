@@ -29,6 +29,9 @@ dist/
 _tmp_*.py
 _tmp_*.log
 
+# Raw dataset downloads (large; products are committed, raw is not)
+data/junyi/_raw/
+
 # Experiment outputs (uncomment if you do NOT want results in git)
 # GNCDM/result/
 # GNCDM/incremental_result/
