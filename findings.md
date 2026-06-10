@@ -911,3 +911,80 @@ junyi random 上**只重训 LoRA** 一支，扫 rank/epoch（同 buf 口径，bu
 - 结论：`all_methods_junyi_random_split.csv` 的 LoRA 行（ACC_new≈0.685）是真实表现，**保持原样、无需改代码**。
 
 > ⚠️ **数据已更新（2026-06-09 同日晚）**：junyi 已从这版**稀疏 5000 学生**（5000×707×39，人均 ~41 条）切换为 **ReliCD/QCCDM 对齐的稠密 1000 学生版**（**1000×712×39，人均 ~204 条**，取作答最多的 top-1000 活跃学生；精确命中论文 Table I 数字）。本轮所有 junyi 数字（5000×707、ΔK=24、LoRA 探针表、ACC_new≈0.685）**均基于旧稀疏版，已被超越**。稠密版每个学生新题信号多 ~5 倍——**LoRA 的 ACC_new 天花板预计抬升（若属实即印证"稀疏是主因"）**。→ **LoRA 行为待在稠密版上重测**；`all_methods_junyi_*` 需在新数据上重跑覆盖。
+
+## ✅ 第四十轮：junyi random 稠密版@α=0.1 重跑——densification 与 alpha 双杠杆抬升 Ours；基线变化源于换数据非 alpha（2026-06-09）
+稠密版 1000×712×39（ΔK：新概念=24/旧概念=15，人均 ~204 作答）。先全扫 alpha 0.1~0.95（`experiments/_core/sweep_junyi_random_alpha.py`，buf 口径，按 DNA mean(valid AUC) 选），定 **alpha=0.1**（selAUC 0.8109 见顶；0.2 统计持平 0.8106、与 math1 random 0.20 对齐，可作避边界替代）。`run_incremental_junyi_random_split.py` 的 ALPHA 已 0.9→0.1。服务器重跑九方法覆盖 `all_methods_junyi_random_split.{csv,md}`。
+
+### alpha=0.1 终版九方法（buf 预测口径）
+| 方法 | AUC_old | AUC_new | ACC_old | ACC_new | TMD |
+|---|---|---|---|---|---|
+| Base | 0.8199 | - | 0.7860 | - | - |
+| Ours-Ablated | 0.8192 | 0.8059 | **0.6327** | 0.7477 | 0.0000 |
+| **Ours (Dynamic DNA)** | **0.8199** | 0.7931 | **0.7860** | 0.7445 | **0.0000** |
+| **Ours (LoRA)** | **0.8199** | 0.7839 | **0.7860** | 0.7335 | **0.0000** |
+| Full Replay Oracle | 0.8196 | 0.8162 | 0.7850 | 0.7602 | 0.0372 |
+| Naive FT (NFT) | 0.8013 | 0.8133 | 0.7521 | 0.7535 | 0.0927 |
+| EWC (λ=1000) | 0.7552 | 0.7713 | 0.7215 | 0.7240 | 0.0892 |
+| DER++ (mem=5000) | 0.8049 | 0.7978 | 0.7655 | 0.7418 | 0.0230 |
+| C-LoRA (λ=10) | 0.7347 | 0.7805 | 0.7213 | 0.7332 | 0.1965 |
+
+### LoRA 天花板：densification 与 alpha 两个杠杆都有效（含本会话初判更正）
+> ⚠️ **更正**：本会话最初误把「被覆盖的旧 all_methods（LoRA ACC_new=0.685）」当成稠密版去比，错得「稠密无效、稀疏被证伪」。复盘证据——那份旧 all_methods 其实是**稀疏版 5000×707 @α=0.9**：其 LoRA AUC_new=0.720/ACC=0.685 = 第三十九轮稀疏数字，且其 DER++（无 alpha/无 λ、种子固定）也与新版不同，证明换的是数据不是 alpha。
+
+真实三步分解（LoRA / DNA，test）：
+| 版本 | LoRA AUC_new | LoRA ACC_new | DNA AUC_new | DNA ACC_new |
+|---|---|---|---|---|
+| 稀疏 @α0.9（旧 all_methods） | 0.720 | 0.685 | 0.757 | 0.712 |
+| 稠密 @α0.9（alpha_sweep） | 0.770 | 0.719 | 0.778 | 0.725 |
+| 稠密 @α0.1（终版 all_methods） | 0.784 | 0.734 | 0.793 | 0.744 |
+
+- **densification 有效**（LoRA ACC +0.034）→ 第三十九轮「稀疏是主因」假设**被支撑、不是证伪**；当时只扫 rank/epoch（都在稀疏@α0.9）顶死 0.68，是因为没动数据量也没动 alpha。
+- **alpha 0.9→0.1 再加成**（LoRA ACC +0.015）→ 第二个独立杠杆（低 alpha 放松生成式/单调正则、给 f_nn 更多自由度学新概念）。
+- 基座厚度（旧概念仅 15 维）解释**残余 LoRA < DNA 的 gap**（0.784<0.793 仍在），但它**不是绝对天花板**——天花板被数据量 + alpha 双双抬升。
+
+### 🔑 基线与 alpha 正交（回应"只改了 Ours 的 alpha，基线不该变"）
+- 代码：`cl_baselines_random_split.run_one(cfg, device)` **不接收 G-NCDM alpha**（其内 alpha 仅 LoRALinear/DER++ 模块自身的固定缩放常数）。→ 改 `run_incremental_junyi_random_split.py` 的 ALPHA **不影响三大基线**。
+- 因此新旧 all_methods 的基线差异（EWC/C-LoRA 最优 λ 10000→1000/10、DER++ AUC_new 0.767→0.798）**全部来自稀疏→稠密换数据**，与 alpha 无关。证据：DER++ 无 alpha 无 λ 仍变。
+- 两套基线数字都正确：λ=10000 是稀疏数据最优、λ=1000/10 是稠密数据最优。终版采用稠密（λ=1000/10）。
+- **叙事利好**：alpha=0.1 下 Ours-Ablated 旧任务 ACC 塌到 **0.6327**（AUC 仍 0.819→阈值漂移型崩，非排序崩），而 DNA/LoRA 旧=Base=0.7860、TMD=0。架构隔离价值在低 alpha 下更醒目。
+
+### 假设：新概念占比越多 → 最优 alpha 越小（2 点趋势，待 a0910 验证 → 已由第四十一轮升级为 3 点确认）
+| random split | 新概念占比 | 最优 alpha | 是否实扫 |
+|---|---|---|---|
+| math1 | 4/11≈36% | 0.20 | ✅ |
+| junyi | 24/39≈62% | 0.1 | ✅ |
+| a0910 | 83/123≈67% | 0.9 | ❌ 仅对齐论文，**未扫** |
+- math1→junyi 完全符合；机制：θ=(1-α)·f_nn+α·σ(…)，新知识越多越需 f_nn 表达自由度→压低 alpha 有利。**a0910 random=0.9 从未真扫**（疑欠优、真最优可能也偏小），如需坐实规律应补扫 a0910 random alpha。
+
+### 记录的最优参数（删除 stale 文件前固化）
+junyi random_split 终版（alpha=0.1）的最优超参，**信息已并入 `all_methods_junyi_random_split.{csv,md}`**：
+- **G-NCDM (Ours)**：alpha=**0.1**、rank=16、n_epoch=25、微方差 1e-3、ΔK auto_new_concepts(0.34)=24 新/15 旧。
+- **EWC**：最优 **λ=1000**（均衡点=max avg(AUC_old,AUC_new)）。⚠️ 被删的 `ewc_lambda_sweep_*.csv` 是 **alpha=0.9 旧版**、内部最优 λ=10000，已被 alpha=0.1 的 λ=1000 取代。
+- **C-LoRA**：最优 **λ=10**（同均衡点）。⚠️ 被删的 `clora_lambda_sweep_*.csv` 同为 alpha=0.9 旧版、内部最优 λ=10000，已被取代。
+- **DER++**：mem=5000（固定，无 sweep）。
+
+## ✅ 第四十一轮：a0910 random alpha 实扫——也是 0.1，「新概念占比越大→alpha 越小」3 点确认（2026-06-09）
+用户在服务器跑 `experiments/_core/sweep_a0910_random_alpha.py`（buf 口径、全扫 0.1~0.95、按 DNA mean(valid AUC) 选），结果存 `incremental_result/alpha_sweep_a0910_random_split.csv`。
+
+### selAUC 在 0.1 见顶
+| alpha | sel_DNA_validAUC | Base te AUCold | DNA te AUCnew | LoRA te AUCnew |
+|---|---|---|---|---|
+| **0.1** | **0.7579** | 0.7603 | 0.7530 | 0.7471 |
+| 0.3 | 0.7569 | 0.7585 | 0.7522 | 0.7443 |
+| 0.5 | 0.7553 | 0.7570 | 0.7520 | 0.7463 |
+| 0.7 | 0.7507 | 0.7529 | 0.7480 | 0.7479 |
+| 0.9（原默认） | 0.7392 | 0.7424 | 0.7377 | 0.7368 |
+- 形态同 junyi：0.1~0.3 平、之后单调下滑。0.9→0.1 在 a0910 上也三处一致抬升（Base +0.018、DNA new +0.015、LoRA new +0.010），幅度比 junyi 温和但方向相同。
+
+### 规律 3 点确认
+| random split | 新概念占比 | 最优 alpha | 实扫 |
+|---|---|---|---|
+| math1 | 4/11≈36% | 0.20 | ✅ |
+| junyi | 24/39≈62% | 0.1 | ✅ |
+| a0910 | 83/123≈67% | **0.1** | ✅（本轮）|
+- 占比 36%→0.20，62%/67%→均 0.1（高占比两个都落到 DNA-mean 标准的 0.1 下边界）。**a0910 原 0.9 是欠优默认（仅对齐论文、从未真扫），实扫确为 0.1。**
+
+### 落盘 + 待办
+- `run_incremental_a0910_random_split.py` 的 ALPHA 已 0.9→0.1；CLAUDE.md alpha 段、memory `[[per-split-optimal-alpha]]` 同步更新（a0910 random 0.9→0.1 确认、规律升 3 点）。
+- ✅ **已完成（服务器）**：a0910 主表已按 0.1 重跑，`incremental_result/all_methods_a0910_random_split.csv` + `docs/all_methods_a0910_random_split.md` 已覆盖到 0.1 版（Base AUC_old=0.7598、Ours-DNA/LoRA new AUC 0.753/0.749 胜全部基线、old=Base/TMD=0）。基线与 alpha 正交再获印证：a0910 同数据重跑，EWC/C-LoRA 行新旧逐位相同，仅 DER++ 因 reservoir 随机性微抖。
+- **已删 3 个 stale/中间文件**（见 [[keep-auxiliary-scripts-out-of-repo]]）：`ewc_lambda_sweep_junyi_random_split.csv`、`clora_lambda_sweep_junyi_random_split.csv`（均 alpha=0.9 旧 λ 曲线）、`incremental_results_junyi_random_split.csv`（6-Ours alpha=0.9 中间产物，已被 all_methods 终表覆盖）。alpha=0.1 的完整 λ 曲线未落盘，仅保留选定点于 all_methods。

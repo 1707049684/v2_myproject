@@ -11,10 +11,13 @@
 ΔK 选择：123 个概念无法手挑，用 auto_new_concepts 自动选「最冷门」概念作为新知识，
 使新题占比≈1/3、旧题≈2/3，且严格拓扑保证旧题不依赖任一新概念。
 """
+
 import os
 import sys
 
-gncdm_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+gncdm_dir = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)  # _core/→experiments/→GNCDM/
 sys.path.insert(0, gncdm_dir)
 
 import numpy as np
@@ -26,8 +29,9 @@ DATA_DIR = os.path.join(repo_root, "data", "a0910")
 
 # a0910 规格（对齐原仓库 scripts/gncdm_a0910_user_split.sh）
 N_USER, N_ITEM, N_KNOW = 4163, 17746, 123
-# per-split 最优 alpha（仅影响 Ours / G-NCDM 行；基线无 alpha）
-ALPHA = {"a0910_random_split": 0.9, "a0910_user_split": 0.6}
+# per-split 最优 alpha 参考（仅影响 Ours / G-NCDM 行；基线无 alpha）。
+# 注：权威值在各 per-split 入口脚本的 ALPHA 常量里硬编码，此 dict 仅备查、未被 import。
+ALPHA = {"a0910_random_split": 0.1, "a0910_user_split": 0.6}
 
 
 def auto_new_concepts(Q, new_item_frac=0.34):
@@ -36,13 +40,13 @@ def auto_new_concepts(Q, new_item_frac=0.34):
     这样新题≈frac、旧题=其余，且旧题（不触及任一新概念）天然不依赖新概念。
     """
     n_item = Q.shape[0]
-    freq = (Q > 0).sum(axis=0)            # 每个概念被多少题用到
-    order = np.argsort(freq)              # 冷门概念在前
+    freq = (Q > 0).sum(axis=0)  # 每个概念被多少题用到
+    order = np.argsort(freq)  # 冷门概念在前
     touched = np.zeros(n_item, dtype=bool)
     new_set = []
     for k in order:
         new_set.append(int(k))
-        touched |= (Q[:, k] > 0)
+        touched |= Q[:, k] > 0
         if touched.sum() >= new_item_frac * n_item:
             break
     return sorted(new_set)
@@ -53,6 +57,8 @@ def auto_new_concepts(Q, new_item_frac=0.34):
 #   python run_incremental_a0910_random_split.py   # alpha=0.9 → all_methods_a0910_random_split
 #   python run_incremental_a0910_user_split.py     # alpha=0.6 → all_methods_a0910_user_split
 if __name__ == "__main__":
-    print("本文件已拆分。请运行："
-          "\n  python run_incremental_a0910_random_split.py"
-          "\n  python run_incremental_a0910_user_split.py")
+    print(
+        "本文件已拆分。请运行："
+        "\n  python run_incremental_a0910_random_split.py"
+        "\n  python run_incremental_a0910_user_split.py"
+    )

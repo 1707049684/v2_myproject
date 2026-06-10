@@ -14,11 +14,14 @@ random_split（预测口径）+ user_split（重构口径）两个划分各跑�
 策略：Base / Ours-Ablated / Ours(DNA) / Ours(LoRA) / Full-Replay-Oracle / Naive-FT。
 结果写 incremental_result/incremental_results_{random_split,user_split}.csv。
 """
+
 import math
 import os
 import sys
 
-gncdm_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+gncdm_dir = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)  # _core/→experiments/→GNCDM/
 sys.path.insert(0, gncdm_dir)
 
 import numpy as np
@@ -100,9 +103,21 @@ def make_hybrid(train_new, train_old, ratio_old_to_new, seed=42):
     return mixed
 
 
-def train_real(model, samples_df, full_log_mat, params, device,
-               batch_size=256, lr=1e-3, n_epoch=10, desc="train",
-               valid_df=None, buffer_log=None, select_metric="acc", eval_fn=None):
+def train_real(
+    model,
+    samples_df,
+    full_log_mat,
+    params,
+    device,
+    batch_size=256,
+    lr=1e-3,
+    n_epoch=10,
+    desc="train",
+    valid_df=None,
+    buffer_log=None,
+    select_metric="acc",
+    eval_fn=None,
+):
     """喂真实作答日志训练。params=要优化的参数列表（增量策略只传 'new' 参数）。
 
     模型选优（保留验证集 select_metric 最高的快照）支持两种口径：
@@ -121,8 +136,8 @@ def train_real(model, samples_df, full_log_mat, params, device,
             user_ids = user_ids.to(device)
             item_ids = item_ids.to(device)
             score = score.to(device).unsqueeze(1)
-            user_log = log_t[user_ids]            # (B, n_item) 真实作答
-            item_log = log_t[:, item_ids].T       # (B, n_user) 真实作答
+            user_log = log_t[user_ids]  # (B, n_item) 真实作答
+            item_log = log_t[:, item_ids].T  # (B, n_user) 真实作答
             pred = model(user_log, item_log, user_ids, item_ids)
             loss = F.binary_cross_entropy(pred, score)
             optimizer.zero_grad()
@@ -140,8 +155,10 @@ def train_real(model, samples_df, full_log_mat, params, device,
             if vm > best_metric:
                 best_metric = vm
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            print(f"    [{desc}] epoch {epoch + 1}/{n_epoch} loss={total / len(loader):.4f} "
-                  f"valid_{select_metric}={vm:.4f} best={best_metric:.4f}")
+            print(
+                f"    [{desc}] epoch {epoch + 1}/{n_epoch} loss={total / len(loader):.4f} "
+                f"valid_{select_metric}={vm:.4f} best={best_metric:.4f}"
+            )
         else:
             print(f"    [{desc}] epoch {epoch + 1}/{n_epoch} loss={total / len(loader):.4f}")
 
@@ -227,15 +244,35 @@ def lora_params(model):
 
 def fresh_base(base_model):
     """从已训练 base 克隆一个新模型，避免策略间互相污染。"""
-    m = GNCDM(n_user=base_model.n_user, n_item=base_model.n_item, n_know=base_model.n_know,
-              user_dim=base_model.user_dim, item_dim=base_model.item_dim, alpha=base_model.alpha,
-              Q_mat=base_model.Q_mat.cpu().numpy(), monotonicity_assumption=True, device=base_model.device)
+    m = GNCDM(
+        n_user=base_model.n_user,
+        n_item=base_model.n_item,
+        n_know=base_model.n_know,
+        user_dim=base_model.user_dim,
+        item_dim=base_model.item_dim,
+        alpha=base_model.alpha,
+        Q_mat=base_model.Q_mat.cpu().numpy(),
+        monotonicity_assumption=True,
+        device=base_model.device,
+    )
     m.load_state_dict(base_model.state_dict())
     return m.to(base_model.device)
 
 
-def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, device,
-                   n_user, n_item_total, n_know_total, new_concepts, alpha=0.8):
+def run_experiment(
+    split_name,
+    mode,
+    train_path,
+    valid_path,
+    test_path,
+    Q_path,
+    device,
+    n_user,
+    n_item_total,
+    n_know_total,
+    new_concepts,
+    alpha=0.8,
+):
     """在一个数据划分上跑 6 策略。数据集维度/新概念由参数传入（math1 与 a0910 共用）。
     mode='buf'：random-split → forward_using_buf 无泄漏预测口径（论文 RQ2）。
     mode='recon'：user-split → forward 重构口径，test/valid 用户互斥（论文 RQ1）。
@@ -257,8 +294,10 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
     Q_old = Q_mat[:n_item_old, :n_know_old].copy()
     Q_expanded = Q_mat.copy()
     assert Q_mat[:n_item_old, n_know_old:].sum() == 0, "旧题依赖了新概念，二分失败！"
-    print(f"严格拓扑二分 dK={NEW_CONCEPTS}: 旧题={n_item_old} 新题={n_item_new}, "
-          f"旧概念={n_know_old} 新概念={n_know_new}（旧题不依赖新概念）")
+    print(
+        f"严格拓扑二分 dK={NEW_CONCEPTS}: 旧题={n_item_old} 新题={n_item_new}, "
+        f"旧概念={n_know_old} 新概念={n_know_new}（旧题不依赖新概念）"
+    )
 
     train_old = df_train[df_train["item_id"] < n_item_old].copy()
     train_new = df_train[df_train["item_id"] >= n_item_old].copy()
@@ -286,6 +325,7 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
             def fn(m):
                 populate_buffers(m, log_full, device)
                 return evaluate_buf(m, valid_df, device)
+
             return fn
 
         def final_old(m):
@@ -295,7 +335,7 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
             return evaluate_buf(m, test_new, device)
     else:
         # user-split：重构口径（test/valid 用户训练时未见 → 喂其自身作答现场诊断）
-        log_valid_old = build_log_mat(valid_old, n_user, n_item_old)   # base 旧题空间(13)
+        log_valid_old = build_log_mat(valid_old, n_user, n_item_old)  # base 旧题空间(13)
         log_test_old = build_log_mat(test_old, n_user, n_item_old)
         log_valid_full = build_log_mat(df_valid, n_user, n_item_total)  # 扩展空间(20)
         log_test_full = build_log_mat(df_test, n_user, n_item_total)
@@ -318,49 +358,91 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
     results = []
 
     def record(name, r_old, r_new, tmd):
-        results.append({
-            "Model": name,
-            "AUC_old": r_old["auc"], "AUC_new": r_new["auc"] if r_new else "-",
-            "RMSE_old": r_old["rmse"], "RMSE_new": r_new["rmse"] if r_new else "-",
-            "ACC_old": r_old["acc"], "ACC_new": r_new["acc"] if r_new else "-",
-            "F1_old": r_old["f1"], "F1_new": r_new["f1"] if r_new else "-",
-            "TMD": tmd if tmd is not None else "",
-        })
-        new_str = f" | 新: AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f} F1={r_new['f1']:.4f}" if r_new else ""
-        print(f"  [{name}] 旧: AUC={r_old['auc']:.4f} ACC={r_old['acc']:.4f} F1={r_old['f1']:.4f}{new_str}")
+        results.append(
+            {
+                "Model": name,
+                "AUC_old": r_old["auc"],
+                "AUC_new": r_new["auc"] if r_new else "-",
+                "RMSE_old": r_old["rmse"],
+                "RMSE_new": r_new["rmse"] if r_new else "-",
+                "ACC_old": r_old["acc"],
+                "ACC_new": r_new["acc"] if r_new else "-",
+                "F1_old": r_old["f1"],
+                "F1_new": r_new["f1"] if r_new else "-",
+                "TMD": tmd if tmd is not None else "",
+            }
+        )
+        new_str = (
+            f" | 新: AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f} F1={r_new['f1']:.4f}"
+            if r_new
+            else ""
+        )
+        print(
+            f"  [{name}] 旧: AUC={r_old['auc']:.4f} ACC={r_old['acc']:.4f} F1={r_old['f1']:.4f}{new_str}"
+        )
 
     # ---- 1. Base（旧题，全参数）----
     print("\n=== 1. Base ===")
-    base = GNCDM(n_user=n_user, n_item=n_item_old, n_know=n_know_old, user_dim=32, item_dim=32,
-                 alpha=alpha, Q_mat=Q_old, monotonicity_assumption=True, device=device).to(device)
-    train_real(base, train_old, log_old, list(base.parameters()), device, n_epoch=25, desc="Base",
-               eval_fn=base_eval_fn)
-    populate_buffers(base, log_old, device)              # 取 Theta_buf 供 TMD 参照
+    base = GNCDM(
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        alpha=alpha,
+        Q_mat=Q_old,
+        monotonicity_assumption=True,
+        device=device,
+    ).to(device)
+    train_real(
+        base,
+        train_old,
+        log_old,
+        list(base.parameters()),
+        device,
+        n_epoch=25,
+        desc="Base",
+        eval_fn=base_eval_fn,
+    )
+    populate_buffers(base, log_old, device)  # 取 Theta_buf 供 TMD 参照
     base_theta_old = base.get_Theta_buf().clone()
     record("Base", base_final(), None, None)
 
-    def run_strategy(name, expand_fn, params_fn, train_df, valid_df, n_epoch=25, mask_agg_old=False):
+    def run_strategy(
+        name, expand_fn, params_fn, train_df, valid_df, n_epoch=25, mask_agg_old=False
+    ):
         m = fresh_base(base)
         expand_fn(m)
         populate_buffers(m, log_full, device)
 
         handles = []
         if mask_agg_old:
+
             def make_col_mask(k_old):
                 def hook(grad):
                     g = grad.clone()
                     g[:, :k_old] = 0.0
                     return g
+
                 return hook
+
             handles.append(m.theta_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
             handles.append(m.psi_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
 
-        train_real(m, train_df, log_full, params_fn(m), device, n_epoch=n_epoch, desc=name,
-                   eval_fn=strat_eval_fn(valid_df))
+        train_real(
+            m,
+            train_df,
+            log_full,
+            params_fn(m),
+            device,
+            n_epoch=n_epoch,
+            desc=name,
+            eval_fn=strat_eval_fn(valid_df),
+        )
         for h in handles:
             h.remove()
 
-        populate_buffers(m, log_full, device)            # TMD 参照（+ buf 模式下供最终评测）
+        populate_buffers(m, log_full, device)  # TMD 参照（+ buf 模式下供最终评测）
         tmd = calculate_tmd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
         return m
@@ -370,23 +452,30 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
         "Ours-Ablated",
         lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
         lambda m: list(m.parameters()),
-        train_new, valid_new)
+        train_new,
+        valid_new,
+    )
 
     print("\n=== 3. Ours (Dynamic DNA) ===")
     run_strategy(
         "Ours (Dynamic DNA)",
         lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
         lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
-        train_new, valid_new,
-        mask_agg_old=True)
+        train_new,
+        valid_new,
+        mask_agg_old=True,
+    )
 
     print("\n=== 4. Ours (LoRA) ===")
     run_strategy(
         "Ours (LoRA)",
-        lambda m: m.expand_topology_lora(delta_M=n_item_new, delta_K=n_know_new,
-                                         Q_expanded=Q_expanded, M_old=n_item_old, rank=16),
+        lambda m: m.expand_topology_lora(
+            delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded, M_old=n_item_old, rank=16
+        ),
         lora_params,
-        train_new, valid_new)
+        train_new,
+        valid_new,
+    )
 
     print("\n=== 5. Full Replay Oracle ===")
     run_strategy(
@@ -394,14 +483,17 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
         lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
         lambda m: list(m.parameters()),
         pd.concat([train_old, train_new], ignore_index=True),
-        pd.concat([valid_old, valid_new], ignore_index=True))
+        pd.concat([valid_old, valid_new], ignore_index=True),
+    )
 
     print("\n=== 6. Naive FT (NFT) ===")
     run_strategy(
         "Naive FT (NFT)",
         lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
         lambda m: list(m.parameters()),
-        train_new, valid_new)
+        train_new,
+        valid_new,
+    )
 
     out = os.path.join(SAVE_DIR, f"incremental_results_{split_name}.csv")
     pd.DataFrame(results).to_csv(out, index=False)
@@ -415,6 +507,8 @@ def run_experiment(split_name, mode, train_path, valid_path, test_path, Q_path, 
 #   python run_incremental_math1_random_split.py   # alpha=0.20 → all_methods_math1_random_split
 #   python run_incremental_math1_user_split.py     # alpha=0.70 → all_methods_math1_user_split
 if __name__ == "__main__":
-    print("本文件已拆分。请运行："
-          "\n  python run_incremental_math1_random_split.py"
-          "\n  python run_incremental_math1_user_split.py")
+    print(
+        "本文件已拆分。请运行："
+        "\n  python run_incremental_math1_random_split.py"
+        "\n  python run_incremental_math1_user_split.py"
+    )

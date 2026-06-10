@@ -12,7 +12,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 gncdm_dir = os.path.dirname(HERE)
-for p in (HERE, gncdm_dir):
+for p in (HERE, os.path.join(HERE, "_core"), gncdm_dir):
     if p not in sys.path:
         sys.path.insert(0, p)
 

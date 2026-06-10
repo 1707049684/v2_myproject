@@ -37,6 +37,7 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))  # GNCDM/
 EXPERIMENTS_DIR = os.path.join(THIS_DIR, "experiments")
 sys.path.insert(0, THIS_DIR)
 sys.path.insert(0, EXPERIMENTS_DIR)
+sys.path.insert(0, os.path.join(EXPERIMENTS_DIR, "_core"))  # 核心库已移入 experiments/_core/
 
 from core.model import GNCDM  # noqa: E402
 from core.train import calculate_tmd  # noqa: E402

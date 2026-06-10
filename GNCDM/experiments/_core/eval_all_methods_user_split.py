@@ -17,11 +17,12 @@ CognitiveBackbone）** 放进一个脚本，在**同一份 support/query 划分*
   **CognitiveBackbone 学生 embedding 空间**，**量级不可与 Ours 的 TMD 直接比**，只看"是否>0"。
 - 骨干不同（基线非 G-NCDM）：勿声称"纯策略"胜出，只说"同划分/同口径下 Ours 全面占优"。
 
-运行（建议 GPU 服务器；需 avalanche 给 EWC/DER）：
+本文件是 **库**（位于 experiments/_core/），提供 user_split 的 `run_one(...)`，被
+experiments/ 下的 per-split 入口（run_incremental_{math1,a0910,junyi}_user_split.py）import。
+也可直接跑其 __main__ 做自检（建议 GPU 服务器；需 avalanche 给 EWC/DER）：
     pip install avalanche-lib
-    cd GNCDM/experiments
-    python eval_all_methods_user_split.py
-默认跑 math1 user_split；把 RUN_A0910=True 也跑 a0910（17746 题，重）。
+    python GNCDM/experiments/_core/eval_all_methods_user_split.py
+__main__ 默认跑 math1 user_split；把 RUN_A0910=True 也跑 a0910（17746 题，重）。
 """
 
 import copy
@@ -29,7 +30,9 @@ import math
 import os
 import sys
 
-gncdm_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+gncdm_dir = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)  # _core/→experiments/→GNCDM/
 sys.path.insert(0, gncdm_dir)
 
 import numpy as np
@@ -202,7 +205,8 @@ def coldstart_eval(model, eval_pack, device):
     criterion = nn.CrossEntropyLoss()
     loader = DataLoader(
         TensorDataset(eval_pack["support_x"], eval_pack["support_y"]),
-        batch_size=COLD_START_BATCH, shuffle=True,
+        batch_size=COLD_START_BATCH,
+        shuffle=True,
     )
     em.train()
     for _ in range(COLD_START_EPOCHS):
@@ -212,8 +216,12 @@ def coldstart_eval(model, eval_pack, device):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-    old_m = evaluate_cd_metrics(em, TensorDataset(eval_pack["query_old_x"], eval_pack["query_old_y"]), device)
-    new_m = evaluate_cd_metrics(em, TensorDataset(eval_pack["query_new_x"], eval_pack["query_new_y"]), device)
+    old_m = evaluate_cd_metrics(
+        em, TensorDataset(eval_pack["query_old_x"], eval_pack["query_old_y"]), device
+    )
+    new_m = evaluate_cd_metrics(
+        em, TensorDataset(eval_pack["query_new_x"], eval_pack["query_new_y"]), device
+    )
     return old_m, new_m
 
 
@@ -233,7 +241,9 @@ def prepare(cfg, device):
     Q_mat = np.load(cfg["Q"])
     n_user, n_item_total, n_know_total = cfg["n_user"], cfg["n_item"], cfg["n_know"]
 
-    Q_mat, item_id_map, n_item_old, n_know_old = strict_bipartition(Q_mat, list(cfg["new_concepts"]))
+    Q_mat, item_id_map, n_item_old, n_know_old = strict_bipartition(
+        Q_mat, list(cfg["new_concepts"])
+    )
     df_train = remap_items(df_train, item_id_map)
     df_valid = remap_items(df_valid, item_id_map)
     df_test = remap_items(df_test, item_id_map)
@@ -254,22 +264,35 @@ def prepare(cfg, device):
     qry_valid_new = qry_valid[qry_valid["item_id"] >= n_item_old].copy()
     qry_test_old = qry_test[qry_test["item_id"] < n_item_old].copy()
     qry_test_new = qry_test[qry_test["item_id"] >= n_item_old].copy()
-    print(f"  support/query: test support={len(sup_test)} | query old={len(qry_test_old)} new={len(qry_test_new)}")
+    print(
+        f"  support/query: test support={len(sup_test)} | query old={len(qry_test_old)} new={len(qry_test_new)}"
+    )
 
     # ---- Ours（G-NCDM）表示：训练 log + 仅 support 构建的评测 log ----
     ours = {
         "log_old": build_log_mat(train_old, n_user, n_item_old),
         "log_full": build_log_mat(df_train, n_user, n_item_total),
-        "train_old": train_old, "train_new": train_new,
-        "sup_valid_old_log": build_log_mat(sup_valid[sup_valid["item_id"] < n_item_old], n_user, n_item_old),
-        "sup_test_old_log": build_log_mat(sup_test[sup_test["item_id"] < n_item_old], n_user, n_item_old),
+        "train_old": train_old,
+        "train_new": train_new,
+        "sup_valid_old_log": build_log_mat(
+            sup_valid[sup_valid["item_id"] < n_item_old], n_user, n_item_old
+        ),
+        "sup_test_old_log": build_log_mat(
+            sup_test[sup_test["item_id"] < n_item_old], n_user, n_item_old
+        ),
         "sup_valid_full_log": build_log_mat(sup_valid, n_user, n_item_total),
         "sup_test_full_log": build_log_mat(sup_test, n_user, n_item_total),
-        "qry_valid_old": qry_valid_old, "qry_valid_new": qry_valid_new, "qry_valid": qry_valid,
-        "qry_test_old": qry_test_old, "qry_test_new": qry_test_new,
-        "Q_old": Q_old, "Q_expanded": Q_expanded,
-        "n_item_old": n_item_old, "n_item_new": n_item_new,
-        "n_know_old": n_know_old, "n_know_new": n_know_new,
+        "qry_valid_old": qry_valid_old,
+        "qry_valid_new": qry_valid_new,
+        "qry_valid": qry_valid,
+        "qry_test_old": qry_test_old,
+        "qry_test_new": qry_test_new,
+        "Q_old": Q_old,
+        "Q_expanded": Q_expanded,
+        "n_item_old": n_item_old,
+        "n_item_new": n_item_new,
+        "n_know_old": n_know_old,
+        "n_know_new": n_know_new,
     }
 
     # ---- 基线（CognitiveBackbone）表示：训练 TensorDataset + 冷启动 support/query 包 ----
@@ -297,15 +320,24 @@ def prepare(cfg, device):
         "num_students": int(df_train["user_id"].max()) + 1,
         "num_items": n_item_total,
         "old_user_ids": torch.tensor(
-            df_train[df_train["item_id"] < n_item_old]["user_id"].unique(), dtype=torch.long),
+            df_train[df_train["item_id"] < n_item_old]["user_id"].unique(), dtype=torch.long
+        ),
         "eval_pack": {
             "n_test_users": len(test_users),
-            "support_x": sup_test_x, "support_y": sup_test_y,
-            "query_old_x": q_old_x, "query_old_y": q_old_y,
-            "query_new_x": q_new_x, "query_new_y": q_new_y,
+            "support_x": sup_test_x,
+            "support_y": sup_test_y,
+            "query_old_x": q_old_x,
+            "query_old_y": q_old_y,
+            "query_new_x": q_new_x,
+            "query_new_y": q_new_y,
         },
     }
-    meta = {"n_user": n_user, "n_item_old": n_item_old, "n_know_old": n_know_old, "alpha": cfg["alpha"]}
+    meta = {
+        "n_user": n_user,
+        "n_item_old": n_item_old,
+        "n_know_old": n_know_old,
+        "alpha": cfg["alpha"],
+    }
     return ours, base, meta
 
 
@@ -334,25 +366,53 @@ def run_ours(ours, meta, device):
     rows = []
 
     def record(name, r_old, r_new, tmd):
-        rows.append({
-            "Method": name,
-            "AUC_old": r_old["auc"], "AUC_new": r_new["auc"] if r_new else "-",
-            "RMSE_old": r_old["rmse"], "RMSE_new": r_new["rmse"] if r_new else "-",
-            "ACC_old": r_old["acc"], "ACC_new": r_new["acc"] if r_new else "-",
-            "F1_old": r_old["f1"], "F1_new": r_new["f1"] if r_new else "-",
-            "TMD": tmd if tmd is not None else "",
-        })
+        rows.append(
+            {
+                "Method": name,
+                "AUC_old": r_old["auc"],
+                "AUC_new": r_new["auc"] if r_new else "-",
+                "RMSE_old": r_old["rmse"],
+                "RMSE_new": r_new["rmse"] if r_new else "-",
+                "ACC_old": r_old["acc"],
+                "ACC_new": r_new["acc"] if r_new else "-",
+                "F1_old": r_old["f1"],
+                "F1_new": r_new["f1"] if r_new else "-",
+                "TMD": tmd if tmd is not None else "",
+            }
+        )
         ns = f" | 新 AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f}" if r_new else ""
         print(f"  [{name}] 旧 AUC={r_old['auc']:.4f} ACC={r_old['acc']:.4f}{ns}")
 
     print("\n=== Ours-1. Base ===")
-    base = GNCDM(n_user=n_user, n_item=n_item_old, n_know=n_know_old, user_dim=32, item_dim=32,
-                 alpha=alpha, Q_mat=Q_old, monotonicity_assumption=True, device=device).to(device)
-    train_real(base, ours["train_old"], log_old, list(base.parameters()), device, n_epoch=25,
-               desc="Base", eval_fn=base_eval_fn)
+    base = GNCDM(
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        alpha=alpha,
+        Q_mat=Q_old,
+        monotonicity_assumption=True,
+        device=device,
+    ).to(device)
+    train_real(
+        base,
+        ours["train_old"],
+        log_old,
+        list(base.parameters()),
+        device,
+        n_epoch=25,
+        desc="Base",
+        eval_fn=base_eval_fn,
+    )
     populate_buffers(base, log_old, device)
     base_theta_old = base.get_Theta_buf().clone()
-    record("Base", evaluate_recon(base, ours["qry_test_old"], ours["sup_test_old_log"], device), None, None)
+    record(
+        "Base",
+        evaluate_recon(base, ours["qry_test_old"], ours["sup_test_old_log"], device),
+        None,
+        None,
+    )
 
     def run_strategy(name, expand_fn, params_fn, train_df, qvalid_df, mask_agg_old=False):
         m = fresh_base(base)
@@ -360,16 +420,27 @@ def run_ours(ours, meta, device):
         populate_buffers(m, log_full, device)
         handles = []
         if mask_agg_old:
+
             def make_col_mask(k_old):
                 def hook(grad):
                     g = grad.clone()
                     g[:, :k_old] = 0.0
                     return g
+
                 return hook
+
             handles.append(m.theta_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
             handles.append(m.psi_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
-        train_real(m, train_df, log_full, params_fn(m), device, n_epoch=25, desc=name,
-                   eval_fn=strat_eval_fn(qvalid_df))
+        train_real(
+            m,
+            train_df,
+            log_full,
+            params_fn(m),
+            device,
+            n_epoch=25,
+            desc=name,
+            eval_fn=strat_eval_fn(qvalid_df),
+        )
         for h in handles:
             h.remove()
         populate_buffers(m, log_full, device)
@@ -377,28 +448,48 @@ def run_ours(ours, meta, device):
         record(name, final_old(m), final_new(m), tmd)
 
     print("\n=== Ours-2. Ablated ===")
-    run_strategy("Ours-Ablated",
-                 lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
-                 lambda m: list(m.parameters()), ours["train_new"], ours["qry_valid_new"])
+    run_strategy(
+        "Ours-Ablated",
+        lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
+        lambda m: list(m.parameters()),
+        ours["train_new"],
+        ours["qry_valid_new"],
+    )
     print("\n=== Ours-3. Dynamic DNA ===")
-    run_strategy("Ours (Dynamic DNA)",
-                 lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
-                 lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
-                 ours["train_new"], ours["qry_valid_new"], mask_agg_old=True)
+    run_strategy(
+        "Ours (Dynamic DNA)",
+        lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
+        lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
+        ours["train_new"],
+        ours["qry_valid_new"],
+        mask_agg_old=True,
+    )
     print("\n=== Ours-4. LoRA ===")
-    run_strategy("Ours (LoRA)",
-                 lambda m: m.expand_topology_lora(delta_M=n_item_new, delta_K=n_know_new,
-                                                  Q_expanded=Q_expanded, M_old=n_item_old, rank=16),
-                 lora_params, ours["train_new"], ours["qry_valid_new"])
+    run_strategy(
+        "Ours (LoRA)",
+        lambda m: m.expand_topology_lora(
+            delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded, M_old=n_item_old, rank=16
+        ),
+        lora_params,
+        ours["train_new"],
+        ours["qry_valid_new"],
+    )
     print("\n=== Ours-5. Full Replay Oracle ===")
-    run_strategy("Full Replay Oracle",
-                 lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
-                 lambda m: list(m.parameters()),
-                 pd.concat([ours["train_old"], ours["train_new"]], ignore_index=True), ours["qry_valid"])
+    run_strategy(
+        "Full Replay Oracle",
+        lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
+        lambda m: list(m.parameters()),
+        pd.concat([ours["train_old"], ours["train_new"]], ignore_index=True),
+        ours["qry_valid"],
+    )
     print("\n=== Ours-6. Naive FT ===")
-    run_strategy("Naive FT (NFT)",
-                 lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
-                 lambda m: list(m.parameters()), ours["train_new"], ours["qry_valid_new"])
+    run_strategy(
+        "Naive FT (NFT)",
+        lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
+        lambda m: list(m.parameters()),
+        ours["train_new"],
+        ours["qry_valid_new"],
+    )
     return rows
 
 
@@ -407,6 +498,7 @@ def run_ours(ours, meta, device):
 # ==========================================================================
 def _bench(base):
     from avalanche.benchmarks import dataset_benchmark
+
     return dataset_benchmark(
         train_datasets=[base["train_old_ds"], base["train_new_ds"]],
         test_datasets=[base["train_old_ds"], base["train_new_ds"]],  # 占位，不用
@@ -416,32 +508,49 @@ def _bench(base):
 def _brow(method, old_m, new_m, tmd):
     return {
         "Method": method,
-        "AUC_old": old_m[0], "AUC_new": new_m[0],
-        "RMSE_old": old_m[1], "RMSE_new": new_m[1],
-        "ACC_old": old_m[2], "ACC_new": new_m[2],
-        "F1_old": old_m[3], "F1_new": new_m[3],
+        "AUC_old": old_m[0],
+        "AUC_new": new_m[0],
+        "RMSE_old": old_m[1],
+        "RMSE_new": new_m[1],
+        "ACC_old": old_m[2],
+        "ACC_new": new_m[2],
+        "F1_old": old_m[3],
+        "F1_new": new_m[3],
         "TMD": tmd,
     }
 
 
 def run_ewc(base, device):
     from avalanche.training.supervised import EWC
+
     print("\n=== Baseline EWC λ 扫描 ===")
     rows = []
     for lam in EWC_LAMBDA_SWEEP:
         set_seed(42)
         model = CognitiveBackbone(base["num_students"], base["num_items"], EMBED_DIM).to(device)
-        strat = EWC(model, optim.Adam(model.parameters(), lr=LR), nn.CrossEntropyLoss(),
-                    ewc_lambda=lam, mode=EWC_MODE, train_mb_size=TRAIN_MB_SIZE,
-                    train_epochs=EWC_EPOCHS, eval_mb_size=256, device=device)
+        strat = EWC(
+            model,
+            optim.Adam(model.parameters(), lr=LR),
+            nn.CrossEntropyLoss(),
+            ewc_lambda=lam,
+            mode=EWC_MODE,
+            train_mb_size=TRAIN_MB_SIZE,
+            train_epochs=EWC_EPOCHS,
+            eval_mb_size=256,
+            device=device,
+        )
         b0 = None
         for exp in _bench(base).train_stream:
             strat.train(exp)
             if exp.current_experience == 0:
                 b0 = model.student_emb.weight.data.clone().cpu()
         old_m, new_m = coldstart_eval(model, base["eval_pack"], device)
-        r = _brow(f"EWC (lambda={lam})", old_m, new_m,
-                  baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM))
+        r = _brow(
+            f"EWC (lambda={lam})",
+            old_m,
+            new_m,
+            baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM),
+        )
         r["lambda"] = lam
         rows.append(r)
         print(f"  λ={lam}: AUC_old={r['AUC_old']:.4f} AUC_new={r['AUC_new']:.4f}")
@@ -450,20 +559,34 @@ def run_ewc(base, device):
 
 def run_der(base, device):
     from avalanche.training.supervised import DER
+
     print("\n=== Baseline DER++ ===")
     set_seed(42)
     model = CognitiveBackbone(base["num_students"], base["num_items"], EMBED_DIM).to(device)
-    strat = DER(model, optim.Adam(model.parameters(), lr=LR), nn.CrossEntropyLoss(),
-                mem_size=MEM_SIZE, alpha=DER_ALPHA, beta=DER_BETA, train_mb_size=TRAIN_MB_SIZE,
-                train_epochs=DER_EPOCHS, eval_mb_size=256, device=device)
+    strat = DER(
+        model,
+        optim.Adam(model.parameters(), lr=LR),
+        nn.CrossEntropyLoss(),
+        mem_size=MEM_SIZE,
+        alpha=DER_ALPHA,
+        beta=DER_BETA,
+        train_mb_size=TRAIN_MB_SIZE,
+        train_epochs=DER_EPOCHS,
+        eval_mb_size=256,
+        device=device,
+    )
     b0 = None
     for exp in _bench(base).train_stream:
         strat.train(exp)
         if exp.current_experience == 0:
             b0 = model.student_emb.weight.data.clone().cpu()
     old_m, new_m = coldstart_eval(model, base["eval_pack"], device)
-    r = _brow(f"DER++ (mem={MEM_SIZE})", old_m, new_m,
-              baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM))
+    r = _brow(
+        f"DER++ (mem={MEM_SIZE})",
+        old_m,
+        new_m,
+        baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM),
+    )
     print(f"  DER++: AUC_old={r['AUC_old']:.4f} AUC_new={r['AUC_new']:.4f}")
     return r
 
@@ -500,8 +623,12 @@ def run_clora(base, device):
         model.to(device)
         _train_phase(model, base["train_new_ds"], CLORA_EPOCHS, device, lambda_ortho=float(lam))
         old_m, new_m = coldstart_eval(model, base["eval_pack"], device)
-        r = _brow(f"C-LoRA (lambda={lam})", old_m, new_m,
-                  baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM))
+        r = _brow(
+            f"C-LoRA (lambda={lam})",
+            old_m,
+            new_m,
+            baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM),
+        )
         r["lambda"] = lam
         rows.append(r)
         print(f"  λ={lam}: AUC_old={r['AUC_old']:.4f} AUC_new={r['AUC_new']:.4f}")
@@ -515,8 +642,18 @@ def _pick_balanced(rows):
 # ==========================================================================
 # 合并表 + markdown（带 TMD 红线脚注）
 # ==========================================================================
-COLS = ["Method", "AUC_old", "AUC_new", "RMSE_old", "RMSE_new",
-        "ACC_old", "ACC_new", "F1_old", "F1_new", "TMD"]
+COLS = [
+    "Method",
+    "AUC_old",
+    "AUC_new",
+    "RMSE_old",
+    "RMSE_new",
+    "ACC_old",
+    "ACC_new",
+    "F1_old",
+    "F1_new",
+    "TMD",
+]
 
 
 def _fmt(x):
@@ -553,9 +690,11 @@ def write_tables(split_name, ours_rows, ewc_rows, der_row, clora_rows):
 
     # 同时落盘两条 λ sweep 供画前沿
     pd.DataFrame(ewc_rows).to_csv(
-        os.path.join(SAVE_DIR, f"ewc_lambda_sweep_{split_name}.csv"), index=False)
+        os.path.join(SAVE_DIR, f"ewc_lambda_sweep_{split_name}.csv"), index=False
+    )
     pd.DataFrame(clora_rows).to_csv(
-        os.path.join(SAVE_DIR, f"clora_lambda_sweep_{split_name}.csv"), index=False)
+        os.path.join(SAVE_DIR, f"clora_lambda_sweep_{split_name}.csv"), index=False
+    )
 
     print("\n" + "=" * 70)
     print(f" 九方法统一对比（{split_name}，support/query 同口径）")
@@ -587,8 +726,11 @@ def main():
             "valid": os.path.join(repo_root, "data", "math1", "user_split", "valid.csv"),
             "test": os.path.join(repo_root, "data", "math1", "user_split", "test.csv"),
             "Q": os.path.join(gncdm_dir, "data", "math1_Q_matrix.npy"),
-            "n_user": 4209, "n_item": 20, "n_know": 11,
-            "new_concepts": [0, 1, 3, 6], "alpha": 0.70,
+            "n_user": 4209,
+            "n_item": 20,
+            "n_know": 11,
+            "new_concepts": [0, 1, 3, 6],
+            "alpha": 0.70,
         },
     }
     if RUN_A0910:
@@ -607,11 +749,14 @@ def main():
             "valid": os.path.join(a0910, "new_user_split", "valid.csv"),
             "test": os.path.join(a0910, "new_user_split", "test.csv"),
             "Q": os.path.join(a0910, "Q_matrix.npy"),
-            "n_user": 4163, "n_item": 17746, "n_know": 123,
+            "n_user": 4163,
+            "n_item": 17746,
+            "n_know": 123,
             # alpha=0.6：a0910 user_split 经 validation 选定（sweep_alpha_a0910_user 全扫 0.1~0.95，
             # valid_ACC 在 0.6 见顶 0.6989；test 端 ACC/F1 最优、test_AUC 仅差 0.3 峰值约 0.0015）。
             # 远优于原作者默认 0.9（test_AUC/ACC 各高约 0.019/0.011）。
-            "new_concepts": sorted(nc), "alpha": 0.6,
+            "new_concepts": sorted(nc),
+            "alpha": 0.6,
         }
 
     if RUN_JUNYI:
@@ -619,16 +764,21 @@ def main():
         Q = np.load(os.path.join(junyi, "Q_matrix.npy"))
         n_user = 0
         for f in ("train.csv", "valid.csv", "test.csv"):
-            n_user = max(n_user, int(pd.read_csv(
-                os.path.join(junyi, "new_user_split", f))["user_id"].max()) + 1)
+            n_user = max(
+                n_user,
+                int(pd.read_csv(os.path.join(junyi, "new_user_split", f))["user_id"].max()) + 1,
+            )
         configs["junyi_user_split"] = {
             "train": os.path.join(junyi, "new_user_split", "train.csv"),
             "valid": os.path.join(junyi, "new_user_split", "valid.csv"),
             "test": os.path.join(junyi, "new_user_split", "test.csv"),
             "Q": os.path.join(junyi, "Q_matrix.npy"),
-            "n_user": n_user, "n_item": Q.shape[0], "n_know": Q.shape[1],
+            "n_user": n_user,
+            "n_item": Q.shape[0],
+            "n_know": Q.shape[1],
             # alpha=0.6：与 a0910 user_split 同值（per-split 最优待 sweep 复核）。
-            "new_concepts": auto_new_concepts(Q, 0.34), "alpha": 0.6,
+            "new_concepts": auto_new_concepts(Q, 0.34),
+            "alpha": 0.6,
         }
 
     for split_name, cfg in configs.items():

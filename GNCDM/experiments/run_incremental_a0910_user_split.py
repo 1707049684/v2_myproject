@@ -6,12 +6,13 @@
 产物：incremental_result/all_methods_a0910_user_split.{csv,md}
 a0910 题量大(17746)，务必 GPU 服务器（需 avalanche）。
 """
+
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 gncdm_dir = os.path.dirname(HERE)
-for p in (HERE, gncdm_dir):
+for p in (HERE, os.path.join(HERE, "_core"), gncdm_dir):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -38,13 +39,21 @@ def main():
     Q = np.load(Q_path)
     usr = os.path.join(DATA_DIR, "new_user_split")
 
-    user_split_all_methods("a0910_user_split", {
-        "train": os.path.join(usr, "train.csv"),
-        "valid": os.path.join(usr, "valid.csv"),
-        "test": os.path.join(usr, "test.csv"),
-        "Q": Q_path, "n_user": N_USER, "n_item": N_ITEM, "n_know": N_KNOW,
-        "new_concepts": auto_new_concepts(Q, 0.34), "alpha": ALPHA,
-    }, device)
+    user_split_all_methods(
+        "a0910_user_split",
+        {
+            "train": os.path.join(usr, "train.csv"),
+            "valid": os.path.join(usr, "valid.csv"),
+            "test": os.path.join(usr, "test.csv"),
+            "Q": Q_path,
+            "n_user": N_USER,
+            "n_item": N_ITEM,
+            "n_know": N_KNOW,
+            "new_concepts": auto_new_concepts(Q, 0.34),
+            "alpha": ALPHA,
+        },
+        device,
+    )
     print("\n完成：incremental_result/all_methods_a0910_user_split.csv")
 
 

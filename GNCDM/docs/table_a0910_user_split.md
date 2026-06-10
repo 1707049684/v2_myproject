@@ -52,7 +52,7 @@ split; sweep over 0.1–0.95 by valid ACC).
   sweep (EWC λ=10⁴, C-LoRA λ=10); full sweeps are in
   `ewc_lambda_sweep_a0910_user_split.csv` / `clora_lambda_sweep_a0910_user_split.csv`.
 - Source data: `incremental_result/all_methods_a0910_user_split.csv`, produced by
-  `experiments/eval_all_methods_user_split.py` (set_seed(42)).
+  `experiments/_core/eval_all_methods_user_split.py` (set_seed(42)), via `run_incremental_a0910_user_split.py`.
 
 > Note on math1: the same nine-method run on math1 user split is **not** a fair baseline
 > comparison — with only 7 new items, the per-learner support set contains too few new-item

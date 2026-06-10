@@ -6,6 +6,7 @@ mode='buf' (forward_using_buf, no-leak prediction), and reports test ACC_old
 for each alpha so we can pick the alpha that maximizes Base's ACC_old on our
 own (sub-)dataset rather than the paper's full-dataset number.
 """
+
 import os
 import numpy as np
 import pandas as pd
@@ -47,11 +48,27 @@ def base_acc_for_alpha(alpha, device):
         return R.evaluate_buf(m, valid_old, device)
 
     R.set_seed(42)  # 与主实验一致，保证可复现
-    base = GNCDM(n_user=n_user, n_item=n_item_old, n_know=n_know_old,
-                 user_dim=32, item_dim=32, alpha=alpha, Q_mat=Q_old,
-                 monotonicity_assumption=True, device=device).to(device)
-    R.train_real(base, train_old, log_old, list(base.parameters()), device,
-                 n_epoch=25, desc=f"Base(a={alpha})", eval_fn=base_eval_fn)
+    base = GNCDM(
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        alpha=alpha,
+        Q_mat=Q_old,
+        monotonicity_assumption=True,
+        device=device,
+    ).to(device)
+    R.train_real(
+        base,
+        train_old,
+        log_old,
+        list(base.parameters()),
+        device,
+        n_epoch=25,
+        desc=f"Base(a={alpha})",
+        eval_fn=base_eval_fn,
+    )
     R.populate_buffers(base, log_old, device)
     return R.evaluate_buf(base, test_old, device)
 
@@ -63,9 +80,18 @@ def main():
     rows = []
     for a in alphas:
         r = base_acc_for_alpha(a, device)
-        rows.append({"alpha": a, "ACC_old": r["acc"], "AUC_old": r["auc"],
-                     "RMSE_old": r["rmse"], "F1_old": r["f1"]})
-        print(f"alpha={a:.2f}  ACC_old={r['acc']:.6f}  AUC_old={r['auc']:.6f}  F1_old={r['f1']:.6f}")
+        rows.append(
+            {
+                "alpha": a,
+                "ACC_old": r["acc"],
+                "AUC_old": r["auc"],
+                "RMSE_old": r["rmse"],
+                "F1_old": r["f1"],
+            }
+        )
+        print(
+            f"alpha={a:.2f}  ACC_old={r['acc']:.6f}  AUC_old={r['auc']:.6f}  F1_old={r['f1']:.6f}"
+        )
 
     df = pd.DataFrame(rows).sort_values("ACC_old", ascending=False)
     out = os.path.join(R.SAVE_DIR, "base_alpha_sweep_random_split.csv")

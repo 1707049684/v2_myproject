@@ -13,21 +13,29 @@ Python 3.10+。仓库里同时存在 cpython-310 和 cpython-313 的 pycache，�
 
 ## 运行实验
 
-**增量学习主实验**（核心贡献，对比 Dynamic DNA / LoRA / Full-Replay / Naive 等 6 种策略）——在 `experiments/` 目录下运行：
+**增量学习主实验**（核心贡献，对比 Dynamic DNA / LoRA / Full-Replay / Naive 等 6 种策略 + 3 CL 基线）。`experiments/` 下**只放 6 个 per-split 主入口**（3 数据集 × 2 划分），每个只跑一个划分、互不影响；在 `experiments/` 目录下运行（需 avalanche 给 EWC/DER）：
 ```bash
 cd GNCDM/experiments
-python run_incremental_math1.py       # Math1：严格拓扑二分(13旧/7新, ΔK={0,1,3,6})，random+user split 各跑一遍
-python run_incremental_a0910.py       # ASSIST a0910 数据集（17746 题，建议 GPU 服务器；ΔK 自动选最冷门概念）
+python run_incremental_math1_random_split.py   # Math1 严格拓扑二分(13旧/7新, ΔK={0,1,3,6}), alpha=0.20
+python run_incremental_math1_user_split.py     # alpha=0.70
+python run_incremental_a0910_random_split.py   # ASSIST a0910(17746题, GPU), alpha=0.1
+python run_incremental_a0910_user_split.py     # alpha=0.6
+python run_incremental_junyi_random_split.py   # junyi 稠密版(1000×712×39), alpha=0.1
+python run_incremental_junyi_user_split.py     # alpha=0.6（未扫，占位）
 ```
-脚本用 `__file__` 定位 `gncdm_dir` 并 `sys.path.insert`，再 `from core.model import GNCDM`，因此可在任意 cwd 运行，但约定在 `experiments/` 下执行。`run_incremental_a0910.py` 复用 `run_incremental_math1.py` 的 `run_experiment()`，仅换数据集维度/路径。结果写入 `GNCDM/incremental_result/incremental_results_{split}.csv`（math1：`_random_split`/`_user_split`；a0910：`_a0910_random_split`/`_a0910_user_split`）。按划分分派评测口径：random_split 走 `forward_using_buf` 无泄漏预测（论文 RQ2），user_split 走 `forward` 重构（论文 RQ1，test/valid 用户互斥）。**严禁给 forward 喂 `torch.zeros` 作答**（生成式诊断需真实作答向量，否则 θ/ψ 退化为常数）。
+**核心库在 `experiments/_core/`**（非入口，被上面 6 个入口 import）：`run_incremental_math1.py`（管线核心：`run_experiment`/`strict_bipartition`/`build_log_mat`/`IDCDataset` 等）、`run_incremental_a0910.py`（`auto_new_concepts` + a0910 维度）、`eval_all_methods_user_split.py`（user_split 的 `run_one` support/query 口径）；alpha 扫描脚本 `sweep_{base_alpha_random,junyi_random_alpha,a0910_random_alpha}.py` 也在 `_core/`。入口脚本把 `HERE/_core` 加入 `sys.path` 后裸 import 这些库；`_core` 文件用 `__file__` 往上数 3 层（库）/4 层（sweep）定位 `gncdm_dir`/`repo_root`，**勿删 `_core/` 或改其目录深度**。random 入口产 `all_methods_{ds}_random_split.{csv,md}`（Ours 经 `incremental_results_{ds}_random_split.csv` 中间表 + `cl_baselines_random_split.py` 合并基线），user 入口经 `eval_all_methods_user_split.run_one` 产 `all_methods_{ds}_user_split.{csv,md}`。按划分分派评测口径：random_split 走 `forward_using_buf` 无泄漏预测（论文 RQ2），user_split 走 support/query 冷启动 `forward` 重构（论文 RQ1，test/valid 用户互斥）。**严禁给 forward 喂 `torch.zeros` 作答**（生成式诊断需真实作答向量，否则 θ/ψ 退化为常数）。
 
-**alpha（四个划分各自单独取最优，互不相同）**：
-- math1 `random_split=0.20`（0.05 步长扫 Base test ACC_old，0.20 见顶 0.7293，脚本 `experiments/sweep_base_alpha_random.py`）
+**alpha（各划分各自单独取最优，互不相同）**：
+- math1 `random_split=0.20`（0.05 步长扫 Base test ACC_old，0.20 见顶 0.7293，脚本 `experiments/_core/sweep_base_alpha_random.py`）
 - math1 `user_split=0.70`（findings 第十八轮）
-- a0910 `random_split=0.9`（对齐原作者/论文，`run_incremental_a0910.py` 的 `ALPHA`）
+- a0910 `random_split=0.1`（`experiments/_core/sweep_a0910_random_alpha.py` 全扫 0.1~0.95、按 DNA mean(valid AUC) 选，0.1 见顶 0.7579；原对齐论文的 0.9 从未真扫、已被实扫超越，`run_incremental_a0910_random_split.py` 的 `ALPHA`）
 - a0910 `user_split=0.6`（validation 全扫 0.1~0.95 按 valid_ACC 选定，0.6 见顶；优于默认 0.9，`eval_all_methods_user_split.py` 已硬编码）
+- junyi `random_split=0.1`（稠密版 1000×712×39，`experiments/_core/sweep_junyi_random_alpha.py` 同口径选，0.1 见顶 0.8109，`run_incremental_junyi_random_split.py` 的 `ALPHA`）
+- junyi `user_split=0.6`（暂未扫，沿用初值）
 
-改 math1 的 alpha 在 `run_incremental_math1.py` 的 `main()` 里 splits 元组；a0910 random 在 `run_incremental_a0910.py`、a0910 user 在 `eval_all_methods_user_split.py` 的 `configs`。
+**经验规律**：random split 新概念占比越大、最优 alpha 越小（math1 36%→0.20；junyi 62%、a0910 67%→均 0.1，DNA mean(valid AUC) 标准在 0.1 见顶）。
+
+改 math1 的 alpha 在 `run_incremental_math1.py` 的 `main()` 里 splits 元组；a0910/junyi 各 random 在对应 `run_incremental_*_random_split.py` 的 `ALPHA`、a0910 user 在 `eval_all_methods_user_split.py` 的 `configs`。
 
 **口径易混点**：增量实验的 `Base` **只在旧题子集上训练+评测**（math1 是 13/20 题、7/11 概念），因此它的 ACC（math1 random≈0.72）**不能**直接对标论文「完整模型」数字（完整 20 题 G-NCDM 重构 user-split≈0.74~0.79，论文 0.749）。差距来自「只用旧子集」，非退化。`Ours(DNA/LoRA)` 旧任务恒等于 `Base`、TMD=0（架构隔离零遗忘）是预期结果，不是 bug。
 
