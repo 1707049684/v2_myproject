@@ -272,11 +272,15 @@ def run_experiment(
     n_know_total,
     new_concepts,
     alpha=0.8,
+    run_strategies=None,
 ):
     """在一个数据划分上跑 6 策略。数据集维度/新概念由参数传入（math1 与 a0910 共用）。
     mode='buf'：random-split → forward_using_buf 无泄漏预测口径（论文 RQ2）。
     mode='recon'：user-split → forward 重构口径，test/valid 用户互斥（论文 RQ1）。
     new_concepts：作为「新知识」ΔK 的概念列索引；严格拓扑二分保证旧题不依赖这些概念。
+    run_strategies：None=跑全部 6 策略（默认，主实验口径不变）；给一个名字集合则只跑其中的
+      非 Base 策略以省算力（Base 始终跑，因 DNA/LoRA 都从训练好的 Base 扩展）。名字用
+      "Ours-Ablated"/"Ours (Dynamic DNA)"/"Ours (LoRA)"/"Full Replay Oracle"/"Naive FT (NFT)"。
     """
     print(f"\n{'#' * 70}\n# {split_name}  (mode={mode})\n{'#' * 70}")
     df_train = pd.read_csv(train_path)
@@ -411,6 +415,9 @@ def run_experiment(
     def run_strategy(
         name, expand_fn, params_fn, train_df, valid_df, n_epoch=25, mask_agg_old=False
     ):
+        # 省算力开关：run_strategies 指定子集时，跳过未请求的非 Base 策略（默认 None=全跑）
+        if run_strategies is not None and name not in run_strategies:
+            return None
         m = fresh_base(base)
         expand_fn(m)
         populate_buffers(m, log_full, device)
@@ -443,6 +450,14 @@ def run_experiment(
             h.remove()
 
         populate_buffers(m, log_full, device)  # TMD 参照（+ buf 模式下供最终评测）
+        # NOTE: TMD 只量潜在能力向量 θ 的旧维漂移（calculate_tmd 仅看 theta[:, :K_old]），
+        # 量不到解码/读出通路（重建后的 theta_agg_mat/psi_agg_mat 的旧列权重与共享 bias）的漂移。
+        # θ_old 由旧编码器 f_nn 产生，而 expand_topology 第一步 _freeze_parameters() 已把 f_nn
+        # 置 requires_grad=False；即使 Ours-Ablated 传 list(m.parameters())，f_nn 也拿不到梯度、
+        # 不更新 → θ_old 恒等 base → TMD 在 DNA 与 Ablated 上都精确为 0（与 Q 无关）。
+        # 但 Ablated 训练了重建后的聚合矩阵旧列权重 + 共享 bias：本数据集新题 Q_old≠0（每道新题
+        # 都碰旧概念），二者都有真实梯度、会漂移，使旧任务真退化 → 体现在 AUC_old
+        # （Base 0.8072 → Ablated 0.7381）而非 TMD。判断 Ablated 是否遗忘看 AUC_old，勿被 TMD=0 误导。
         tmd = calculate_tmd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
         return m
@@ -457,6 +472,15 @@ def run_experiment(
     )
 
     print("\n=== 3. Ours (Dynamic DNA) ===")
+    # 与 Ours-Ablated 模型定义完全相同（同一个 expand_topology，旧编码器 f_nn 均被
+    # _freeze_parameters() 冻结）；差别全在训练时的两道隔离。注意本数据集新题 Q_old≠0
+    # （每道新题都碰旧概念），故聚合矩阵旧列权重与共享 bias 都会收到真实梯度——两道都起作用、缺一不可：
+    #   - 可训练参数集合：只放 theta_agg_mat/psi_agg_mat 的 .weight，刻意排除其 .bias。
+    #     该 bias 新旧任务共享（predict_response 里旧/新题都无条件相加），训它必被新任务带偏。
+    #   - mask_agg_old=True（⊥-mask/OCM）：把重建后聚合矩阵旧概念列 [:, :K_old] 的梯度清零。
+    # 两道合起来令旧任务 bit-identical（AUC_old=Base）。Ours-Ablated 用 list(m.parameters())
+    # 无差别训练重建后聚合矩阵的全列+bias（无 mask）→ 旧列权重与 bias 双双漂移 → AUC_old 下降。
+    # f_nn 两者都冻结，故 θ/TMD 不受影响，详见上方 TMD NOTE。
     run_strategy(
         "Ours (Dynamic DNA)",
         lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),

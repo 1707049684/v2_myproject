@@ -444,6 +444,11 @@ def run_ours(ours, meta, device):
         for h in handles:
             h.remove()
         populate_buffers(m, log_full, device)
+        # NOTE: TMD 只量 θ 旧维漂移（仅 theta[:, :K_old]），量不到聚合矩阵旧列权重/共享 bias 漂移。
+        # θ_old 来自旧编码器 f_nn，而 expand_topology 的 _freeze_parameters() 已冻结 f_nn
+        # （requires_grad=False）→ 即便 Ours-Ablated 传 list(m.parameters()) 也训不动它 → TMD=0；
+        # 但 Ablated 训练了重建后的聚合矩阵旧列权重+bias（新题 Q_old≠0，二者有真实梯度），漂移使旧任务
+        # 真退化，看 AUC_old 而非 TMD。详细机理见 run_incremental_math1.py 的 run_strategy / DNA 注释。
         tmd = calculate_tmd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
 
