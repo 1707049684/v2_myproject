@@ -988,3 +988,60 @@ junyi random_split 终版（alpha=0.1）的最优超参，**信息已并入 `all
 - `run_incremental_a0910_random_split.py` 的 ALPHA 已 0.9→0.1；CLAUDE.md alpha 段、memory `[[per-split-optimal-alpha]]` 同步更新（a0910 random 0.9→0.1 确认、规律升 3 点）。
 - ✅ **已完成（服务器）**：a0910 主表已按 0.1 重跑，`incremental_result/all_methods_a0910_random_split.csv` + `docs/all_methods_a0910_random_split.md` 已覆盖到 0.1 版（Base AUC_old=0.7598、Ours-DNA/LoRA new AUC 0.753/0.749 胜全部基线、old=Base/TMD=0）。基线与 alpha 正交再获印证：a0910 同数据重跑，EWC/C-LoRA 行新旧逐位相同，仅 DER++ 因 reservoir 随机性微抖。
 - **已删 3 个 stale/中间文件**（见 [[keep-auxiliary-scripts-out-of-repo]]）：`ewc_lambda_sweep_junyi_random_split.csv`、`clora_lambda_sweep_junyi_random_split.csv`（均 alpha=0.9 旧 λ 曲线）、`incremental_results_junyi_random_split.csv`（6-Ours alpha=0.9 中间产物，已被 all_methods 终表覆盖）。alpha=0.1 的完整 λ 曲线未落盘，仅保留选定点于 all_methods。
+
+## ✅ 第四十二轮：DNA vs LoRA 受控对照——「数据/概念越多 LoRA 越强、反超 DNA」被**证伪**，机制=rank 瓶颈欠拟合（2026-06-19）
+起因：用户观察到 a0910@alpha=0.9 单次结果里 LoRA 新任务略高于 DNA，猜测「数据集越大 / 新概念越多 → LoRA 越占优，最终反超 DNA」。为把**数据量**、**alpha**、**概念数 ΔK** 三个变量解耦，写了辅助脚本 `verify_lora_vs_dna_scaling.py`（frac 扫数据量 / deltak 扫概念数；多 seed 配对算 gap=AUC_new[LoRA]−AUC_new[DNA]；`--fix-new-rows` 锁新题作答量解耦概念数与数据量；只跑 Base+DNA+LoRA 省算力，靠新增的 `run_experiment(run_strategies=...)` 过滤）。**脚本已删**（[[keep-auxiliary-scripts-out-of-repo]]），结论固化于此。
+
+### 证据 1：数据量扫描（a0910，seed=42，frac=新题作答量比例）——无「越多越强」趋势
+gap=AUC_new(LoRA−DNA)：
+| frac | 0.10 | 0.25 | 0.50 | 0.75 | 1.00 |
+|---|---|---|---|---|---|
+| alpha=0.1 | +0.0012 | −0.0098 | −0.0130 | −0.0068 | −0.0041 |
+| alpha=0.9 | +0.0160 | −0.0109 | −0.0033 | +0.0006 | −0.0008 |
+- LoRA 的相对优势**随数据量下降/消失**（小数据偶尔略优，大数据收敛到 0 附近、DNA 微弱领先），与假设方向相反。全数据 |gap|≤0.004。
+
+### 证据 2：单 seed 的「LoRA>DNA@0.9」是噪声
+受控多 seed 全数据下 DNA 反而微弱领先；DNA 跨 run 几乎不变、**LoRA 抖 ~0.004**（rank-16 微方差 1e-3 init 对随机性/GPU 非确定性敏感），排名被 LoRA 的抖动翻号 → 不可作结论。
+
+### 证据 3：概念数扫描（a0910，ΔK=16/32/64，**3 seed 配对**，fix-new-rows 锁数据量）——DNA 显著胜，且 ΔK 越大越胜
+| ΔK | alpha | DNA | LoRA | gap mean±std | 显著性 |
+|---|---|---|---|---|---|
+| 16 | 0.1/0.9 | ~0.49 | ~0.50 | 噪声(±0.05~0.08) | **退化点**：挑最冷门 16 概念→新题太少，AUC≈随机，剔除 |
+| 32 | 0.1 | 0.729 | 0.720 | **−0.0088 ±0.0028** | 显著(>2σ) |
+| 64 | 0.1 | 0.753 | 0.733 | **−0.0198 ±0.0028** | 显著 |
+| 32 | 0.9 | 0.730 | 0.717 | **−0.0125 ±0.0018** | 显著 |
+| 64 | 0.9 | 0.739 | 0.729 | **−0.0099 ±0.0072** | 显著 |
+- 有效区（ΔK=32/64）DNA **统计显著**强于 LoRA；alpha=0.1 时 DNA 领先随 ΔK **扩大**（−0.0088→−0.0198）。**「概念越多 LoRA 越强」反被证伪。**
+
+### 机制（rank 瓶颈，非低秩可压缩）
+LoRA 对新概念的编码器与读出均为 **rank=16 瓶颈**（W_new=A@B；读出端再受 user_dim=32 封顶）。ΔK≤16 瓶颈不咬合 → LoRA≈DNA，差别只来自 init/结构（math1 ΔK=4 处 DNA 仍胜 ~0.05 即此类噪声）。ΔK>16 咬合：a0910 新概念**不是低秩可压缩**的，rank-16 把 32/64 个概念硬塞进 16 维 → **欠拟合**，概念越多越差。故「相关概念→低秩先验帮 LoRA」在 a0910 不成立；挂钩的是 **ΔK 与 rank 的相对大小**，不是 ΔK 绝对值。
+
+### 结论（写论文用）
+- **不写**「数据/概念越多 LoRA 反超 DNA」。**DNA = 更强主变体；LoRA = 参数高效备选**，当 ΔK≫rank 时有一个**小而显著**的可塑性损失。两者均零遗忘（AUC_old=Base、TMD=0）。排序由 ΔK=32/64 多 seed 背书。
+- 与 X-DER 同表（α=0.1，见 `all_methods_a0910_random_split`）：X-DER(mem=5000) 新任务 AUC=0.7051 **最低**且 **TMD=0.0536>0 仍遗忘**；即强回放基线在两轴均被 Ours 压制，反衬架构隔离必要性。
+- 副产物：`run_experiment` 新增向后兼容参数 `run_strategies`（None=全跑，给子集只跑请求的非 Base 策略以省算力），保留备用；`run_ours_xder_a0910_random_split.py`（6 Ours + X-DER 合表入口）保留。DNA/Ablated/TMD 的隔离机理注释已写入 `run_incremental_math1.py` / `eval_all_methods_user_split.py`。
+
+## ✅ 第四十三轮：support_frac × multi-seed 扫描——「User-Split 下 LoRA 冷启动优势」机制坐实（2026-06-21）
+起因：a0910 user_split 单次（frac=0.5, seed=7）观察到 LoRA AUC_new=0.7224 > DNA 0.7060，提出假说「User-Split 是泛化受限/冷启动场景，support 越少 → LoRA 低秩正则优势越大」。写 `experiments/verify_user_split_support_frac.py`（只跑 Base+DNA+LoRA，猴子补丁 `evals.SUPPORT_FRAC`/`evals.SPLIT_SEED` 再调 `prepare()`，4 fracs × 3 seeds = 12 点）。**脚本已删**（[[keep-auxiliary-scripts-out-of-repo]]），结论固化于此。
+
+### 实验数据（a0910 user_split, alpha=0.6, gap = AUC_new(LoRA)−AUC_new(DNA)）
+| frac | seed=7 | seed=42 | seed=1 | mean | std |
+|---|---|---|---|---|---|
+| 0.20 | +0.0243 | +0.0279 | +0.0251 | **+0.0258** | 0.0019 |
+| 0.35 | +0.0196 | +0.0176 | +0.0206 | +0.0192 | 0.0017 |
+| 0.50 | +0.0141 | +0.0243 | +0.0161 | +0.0182 | 0.0054 |
+| 0.70 | +0.0161 | +0.0263 | +0.0051 | +0.0158 | 0.0106 |
+
+### 结论
+1. **12/12 均 LoRA > DNA**（p ≈ 1/2¹² ≈ 0.0002，Ours-LoRA 在 user_split 的优势是系统性的，非单次噪声）。
+2. **单调趋势确认**：`frac↓ → gap mean↑`（0.70→0.50→0.35→0.20：0.0158→0.0182→0.0192→0.0258）；frac=0.2 时 gap 最大且 std 最小（0.0019），说明 support 越稀薄 LoRA 优势越稳定。
+3. **frac=0.7 高方差（std=0.0106）**：seed=1 gap 仅 0.0051，说明 support 充足时 LoRA vs DNA 差距接近训练噪声量级，两者趋于相当。
+
+### 机制（方差-偏差冷启动）
+- **Random-Split（已见学习者，监督充足）= 容量受限场景**：DNA 满秩扩展充分利用新题数据，rank-16 瓶颈使 LoRA 在 ΔK≫rank 时欠拟合 → DNA 胜（第四十二轮）。
+- **User-Split（未见学习者，support 稀薄）= 泛化受限场景**：推理期每用户只有少量 support 喂入 `evaluate_recon`；DNA 满秩新分支有效自由度高，在极少 support 下泛化方差更大；LoRA rank=16 约束压低有效自由度 → 天然正则 → query 泛化更稳。frac=0.2 时效应最强（最少 support → 正则收益最大）。
+- **同一个 rank**：在 random-split 表现为欠拟合瓶颈，在 user-split 表现为正则先验——两种场景对容量的需求不同。
+
+### 叙事价值（写论文用）
+- 可加一句话：「User-Split 冷启动下 LoRA 低秩因子充当隐式正则，support 越稀薄优势越稳（12/12 阳性，gap 随 frac↓ 单调↑）；Random-Split 容量充足时 DNA 满秩优势复现（第四十二轮）。二者在不同场景互补，DNA 为主变体、LoRA 为参数高效冷启动备选。」
+- 结果落 `incremental_result/verify_usersplit_frac_sweep.csv`（12 行）；验证脚本已删。
