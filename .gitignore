@@ -31,6 +31,7 @@ _tmp_*.log
 
 # Raw dataset downloads (large; products are committed, raw is not)
 data/junyi/_raw/
+GNCDM/data/KDD_Cup_2010/
 
 # Experiment outputs (uncomment if you do NOT want results in git)
 # GNCDM/result/

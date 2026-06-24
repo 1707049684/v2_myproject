@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """junyi · user_split 九方法表（6 Ours + EWC/DER++/C-LoRA）。alpha=0.6。
 
-topic 级共享概念（~5000×707×39）。用户互斥 → 统一 support/query 冷启动口径。
+topic 级共享概念（1000×712×39 稠密版）。用户互斥 → 统一 support/query 冷启动口径。
 eval_all_methods_user_split.run_one() 在同一份 support/query 上一次跑完 6 Ours + 3 基线。
 维度从文件读；ΔK 用 auto_new_concepts(0.34)。
 产物：incremental_result/all_methods_junyi_user_split.{csv,md}（需 avalanche）。
