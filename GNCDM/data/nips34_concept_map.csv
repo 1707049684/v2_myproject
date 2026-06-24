@@ -1,0 +1,58 @@
+orig_SubjectId,concept_id,Name,Level
+33,0,BIDMAS,3
+52,1,Factorising into a Single Bracket,3
+64,2,Linear Equations,3
+67,3,Substitution into Formula,3
+70,4,Writing Expressions,3
+73,5,"Types, Naming and Estimating",3
+75,6,Area of Simple Shapes,3
+86,7,Perimeter,3
+88,8,Properties of Quadrilaterals,3
+90,9,Length Scale Factors in Similar Shapes,3
+92,10,Reflection,3
+93,11,Rotation,3
+94,12,Enlargement,3
+95,13,Translation and Vectors,3
+166,14,Solving Linear Inequalities,3
+171,15,Linear Sequences (nth term),3
+179,16,Compound Area,3
+180,17,Measuring Angles,3
+181,18,"Basic Angle Facts (straight line, opposite, around a point, etc)",3
+182,19,Angle Facts with Parallel Lines,3
+183,20,Angles in Polygons,3
+184,21,Parts of a Circle,3
+189,22,Volume of Prisms,3
+190,23,Construct Angle,3
+191,24,Construct Triangle,3
+192,25,Construct Angle and Line Bisectors,3
+202,26,Place Value,3
+204,27,Mental Multiplication and Division,3
+207,28,Written Multiplication,3
+209,29,Time,3
+210,30,Ordering Negative Numbers,3
+211,31,Adding and Subtracting Negative Numbers,3
+212,32,Multiplying and Dividing Negative Numbers,3
+219,33,Factors and Highest Common Factor,3
+220,34,Multiples and Lowest Common Multiple,3
+221,35,Prime Numbers and Prime Factors,3
+224,36,Multiplying and Dividing with Decimals,3
+225,37,Fractions of an Amount,3
+226,38,Equivalent Fractions,3
+228,39,Ordering Fractions,3
+229,40,Converting Mixed Number and Improper Fractions,3
+230,41,Adding and Subtracting Fractions,3
+231,42,Multiplying Fractions,3
+232,43,Dividing Fractions,3
+237,44,Converting between Fractions and Decimals,3
+238,45,Converting between Fractions and Percentages,3
+245,46,"Squares, Cubes, etc",3
+251,47,Simplifying Expressions by Collecting Like Terms,3
+258,48,Horizontal and Vertical Lines,3
+273,49,"Length, Area and Volume Scale Factors",3
+275,50,Line Symmetry,3
+276,51,Rotational Symmetry,3
+406,52,Naming Co-ordinates in 2D,3
+408,53,Midpoint Between Two Co-ordinates,3
+409,54,Gradient Between Two Co-ordinates,3
+439,55,Angles in Triangles,3
+655,56,Missing Lengths,3
