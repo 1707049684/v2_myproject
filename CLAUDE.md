@@ -32,9 +32,8 @@ python run_incremental_junyi_user_split.py     # alpha=0.6（未扫，占位）
 - a0910 `user_split=0.6`（validation 全扫 0.1~0.95 按 valid_ACC 选定，0.6 见顶；优于默认 0.9，`eval_all_methods_user_split.py` 已硬编码）
 - junyi `random_split=0.1`（稠密版 1000×712×39，`experiments/_core/sweep_junyi_random_alpha.py` 同口径选，0.1 见顶 0.8109，`run_incremental_junyi_random_split.py` 的 `ALPHA`）
 - junyi `user_split=0.6`（暂未扫，沿用初值）
-- algebra(KDD Cup 2010 Algebra 05-06) `random_split=0.30`（数据集 `data/algebra0506kc_*`，574 user×1206 题×112 KC，题级聚合 score=整题全 step 首答全对、pos_rate≈0.27；`experiments/_core/sweep_algebra_random_alpha.py` 全扫 0.1~0.95 按 DNA mean(valid AUC) 选，0.30 见顶 selAUC=0.8304、0.3~0.5 为平台，`run_incremental_algebra_random_split.py` 的 `ALPHA`）
 
-**经验规律**：random split 新概念占比越大、最优 alpha 越小（math1 36%→0.20；junyi 62%、a0910 67%→均 0.1，DNA mean(valid AUC) 标准在 0.1 见顶）。**但该规律仅适用于稀疏 Q（≈1 KC/题）**：algebra 新概念占比 46% 却在 alpha=0.30 见顶（非更小），因其 Q 稠密（9.33 KC/题）——每题挂多 KC、旧概念信息更丰富，需更大 alpha 匹配单调先验。稠密 Q 数据集**勿套此规律，必须实扫**。
+**经验规律**：random split 新概念占比越大、最优 alpha 越小（math1 36%→0.20；junyi 62%、a0910 67%→均 0.1，DNA mean(valid AUC) 标准在 0.1 见顶）。
 
 改 math1 的 alpha 在 `run_incremental_math1.py` 的 `main()` 里 splits 元组；a0910/junyi 各 random 在对应 `run_incremental_*_random_split.py` 的 `ALPHA`、a0910 user 在 `eval_all_methods_user_split.py` 的 `configs`。
 
