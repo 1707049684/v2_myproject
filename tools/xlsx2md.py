@@ -12,6 +12,12 @@
 import sys
 import pandas as pd
 
+# Windows 上 Python stdout 默认 cp936/GBK，输出中文经 UTF-8 终端会乱码 → 强制 UTF-8
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 def _fmt(x, nd):
     if x is None or (isinstance(x, float) and pd.isna(x)):
