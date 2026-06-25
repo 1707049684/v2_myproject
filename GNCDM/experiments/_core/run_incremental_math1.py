@@ -404,7 +404,7 @@ def run_experiment(
         log_old,
         list(base.parameters()),
         device,
-        n_epoch=25,
+        n_epoch=15,
         desc="Base",
         eval_fn=base_eval_fn,
     )
@@ -413,7 +413,7 @@ def run_experiment(
     record("Base", base_final(), None, None)
 
     def run_strategy(
-        name, expand_fn, params_fn, train_df, valid_df, n_epoch=25, mask_agg_old=False
+        name, expand_fn, params_fn, train_df, valid_df, n_epoch=15, mask_agg_old=False
     ):
         # 省算力开关：run_strategies 指定子集时，跳过未请求的非 Base 策略（默认 None=全跑）
         if run_strategies is not None and name not in run_strategies:

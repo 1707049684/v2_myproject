@@ -31,7 +31,6 @@ _tmp_*.log
 
 # Raw dataset downloads (large; products are committed, raw is not)
 data/junyi/_raw/
-data/XES3G5M.tar.gz
 data/XES3G5M/
 
 # Experiment outputs (uncomment if you do NOT want results in git)
