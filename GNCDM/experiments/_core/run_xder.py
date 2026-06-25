@@ -133,7 +133,7 @@ def train_xder(
     beta_buf=0.5,
     lam_future=0.5,
     gamma=0.75,
-    n_epoch=25,
+    n_epoch=15,
     lr=1e-3,
     batch_size=256,
     buf_batch=256,
@@ -221,7 +221,7 @@ def run_xder(
     lam_future=0.5,
     gamma=0.75,
     buffer_size=5000,
-    n_epoch=25,
+    n_epoch=15,
     lr=1e-3,
     batch_size=256,
     buf_batch=256,
@@ -284,7 +284,7 @@ def run_xder(
         log_old,
         list(base.parameters()),
         device,
-        n_epoch=25,
+        n_epoch=15,
         desc="Base(X-DER)",
         eval_fn=base_eval_fn,
     )
@@ -406,7 +406,7 @@ def run_xder_user_split(
     lam_future=0.5,
     gamma=0.75,
     buffer_size=5000,
-    n_epoch=25,
+    n_epoch=15,
     lr=1e-3,
     batch_size=256,
     buf_batch=256,
@@ -476,7 +476,7 @@ def run_xder_user_split(
 
     train_real(
         base, train_old, log_old, list(base.parameters()), device,
-        n_epoch=25, desc="Base(X-DER-US)", eval_fn=base_eval_fn,
+        n_epoch=15, desc="Base(X-DER-US)", eval_fn=base_eval_fn,
     )
     populate_buffers(base, log_old, device)
     base_theta_old = base.get_Theta_buf().clone()

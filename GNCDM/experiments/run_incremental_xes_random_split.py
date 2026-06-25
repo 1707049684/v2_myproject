@@ -36,7 +36,7 @@ import cl_baselines_random_split as clbase
 DATA_DIR = os.path.join(gncdm_dir, "data")
 PREFIX = "xes"
 N_USER, N_ITEM, N_KNOW = 3402, 7056, 837
-ALPHA = 0.10  # 占位：新概念占比 82%>a0910 67% → 规律取 0.1，未实扫，有 GPU 后 sweep 确认
+ALPHA = 0.20  # sweep_xes_random_alpha 实扫 0.1~0.7，DNA mean(valid AUC) 在 0.20 见顶(0.7605)；0.1~0.4 为平台
 
 
 def append_xder_to_all_methods(xder_row):

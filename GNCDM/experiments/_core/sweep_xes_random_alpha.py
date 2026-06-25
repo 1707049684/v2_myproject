@@ -27,7 +27,7 @@ REPO = os.path.dirname(
 DATA = os.path.join(REPO, "GNCDM", "data")
 PREFIX = "xes"
 ALPHAS = [round(0.1 * k, 2) for k in range(1, 10)] + [0.95]  # 0.1..0.9, 0.95
-N_EPOCH = 25
+N_EPOCH = 15
 RANK = 16
 
 

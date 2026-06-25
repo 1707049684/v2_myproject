@@ -32,6 +32,7 @@ python run_incremental_junyi_user_split.py     # alpha=0.6（未扫，占位）
 - a0910 `user_split=0.6`（validation 全扫 0.1~0.95 按 valid_ACC 选定，0.6 见顶；优于默认 0.9，`eval_all_methods_user_split.py` 已硬编码）
 - junyi `random_split=0.1`（稠密版 1000×712×39，`experiments/_core/sweep_junyi_random_alpha.py` 同口径选，0.1 见顶 0.8109，`run_incremental_junyi_random_split.py` 的 `ALPHA`）
 - junyi `user_split=0.6`（暂未扫，沿用初值）
+- xes(XES3G5M) `random_split=0.20`（`experiments/_core/sweep_xes_random_alpha.py` 实扫 0.1~0.7、按 DNA mean(valid AUC) 选，0.20 见顶 0.7605，0.1~0.4 为平台；新概念占比 82% 却未落 0.1，是经验规律的一处偏离，`run_incremental_xes_random_split.py` 的 `ALPHA`）
 
 **经验规律**：random split 新概念占比越大、最优 alpha 越小（math1 36%→0.20；junyi 62%、a0910 67%→均 0.1，DNA mean(valid AUC) 标准在 0.1 见顶）。
 

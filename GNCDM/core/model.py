@@ -267,7 +267,7 @@ class GNCDM(nn.Module):
             )
         
         # Replace old theta_agg_mat
-        self.theta_agg_mat = f_linear(new_n_know, self.user_dim, device=self.device)
+        self.theta_agg_mat = f_linear(new_n_know, self.user_dim).to(self.device)
         self.theta_agg_mat.weight = new_theta_agg_weight
         self.theta_agg_mat.bias = new_theta_agg_bias
         
@@ -290,7 +290,7 @@ class GNCDM(nn.Module):
             )
         
         # Replace old psi_agg_mat
-        self.psi_agg_mat = nn.Linear(new_n_know, self.item_dim, device=self.device)
+        self.psi_agg_mat = nn.Linear(new_n_know, self.item_dim).to(self.device)
         self.psi_agg_mat.weight = new_psi_agg_weight
         self.psi_agg_mat.bias = new_psi_agg_bias
         
@@ -372,7 +372,7 @@ class GNCDM(nn.Module):
         self.B_theta_agg = nn.Parameter(torch.randn(rank, delta_K, device=self.device) * 1e-3)
         
         # Replace old theta_agg_mat
-        self.theta_agg_mat = f_linear(new_n_know, self.user_dim, device=self.device)
+        self.theta_agg_mat = f_linear(new_n_know, self.user_dim).to(self.device)
         self.theta_agg_mat.weight = new_theta_agg_weight
         self.theta_agg_mat.bias = new_theta_agg_bias
         
@@ -392,7 +392,7 @@ class GNCDM(nn.Module):
         self.B_psi_agg = nn.Parameter(torch.randn(rank, delta_K, device=self.device) * 1e-3)
         
         # Replace old psi_agg_mat
-        self.psi_agg_mat = nn.Linear(new_n_know, self.item_dim, device=self.device)
+        self.psi_agg_mat = nn.Linear(new_n_know, self.item_dim).to(self.device)
         self.psi_agg_mat.weight = new_psi_agg_weight
         self.psi_agg_mat.bias = new_psi_agg_bias
         
@@ -453,7 +453,7 @@ class GNCDM(nn.Module):
         old_bias_f1 = self.f_nn[0].bias.data
         new_bias_f1 = torch.cat([old_bias_f1, torch.randn(delta_K, device=self.device) * 0.01], dim=0)
         
-        self.f_nn[0] = f_linear(self.n_item, self.n_know, device=self.device)
+        self.f_nn[0] = f_linear(self.n_item, self.n_know).to(self.device)
         self.f_nn[0].weight = nn.Parameter(new_weight_f1)
         self.f_nn[0].bias = nn.Parameter(new_bias_f1)
         
@@ -466,7 +466,7 @@ class GNCDM(nn.Module):
         old_bias_f2 = self.f_nn[2].bias.data
         new_bias_f2 = torch.cat([old_bias_f2, torch.randn(delta_K, device=self.device) * 0.01], dim=0)
         
-        self.f_nn[2] = f_linear(self.n_know, self.n_know, device=self.device)
+        self.f_nn[2] = f_linear(self.n_know, self.n_know).to(self.device)
         self.f_nn[2].weight = nn.Parameter(new_weight_f2)
         self.f_nn[2].bias = nn.Parameter(new_bias_f2)
         
@@ -479,7 +479,7 @@ class GNCDM(nn.Module):
         old_bias_g1 = self.g_nn[0].bias.data
         new_bias_g1 = torch.cat([old_bias_g1, torch.randn(delta_K, device=self.device) * 0.01], dim=0)
         
-        self.g_nn[0] = nn.Linear(self.n_user, self.n_know, device=self.device)
+        self.g_nn[0] = nn.Linear(self.n_user, self.n_know).to(self.device)
         self.g_nn[0].weight = nn.Parameter(new_weight_g1)
         self.g_nn[0].bias = nn.Parameter(new_bias_g1)
         
@@ -492,7 +492,7 @@ class GNCDM(nn.Module):
         old_bias_g2 = self.g_nn[2].bias.data
         new_bias_g2 = torch.cat([old_bias_g2, torch.randn(delta_K, device=self.device) * 0.01], dim=0)
         
-        self.g_nn[2] = nn.Linear(self.n_know, self.n_know, device=self.device)
+        self.g_nn[2] = nn.Linear(self.n_know, self.n_know).to(self.device)
         self.g_nn[2].weight = nn.Parameter(new_weight_g2)
         self.g_nn[2].bias = nn.Parameter(new_bias_g2)
         
@@ -505,7 +505,7 @@ class GNCDM(nn.Module):
         old_bias_g3 = self.g_nn[4].bias.data
         new_bias_g3 = torch.cat([old_bias_g3, torch.randn(delta_K, device=self.device) * 0.01], dim=0)
         
-        self.g_nn[4] = nn.Linear(self.n_know, self.n_know, device=self.device)
+        self.g_nn[4] = nn.Linear(self.n_know, self.n_know).to(self.device)
         self.g_nn[4].weight = nn.Parameter(new_weight_g3)
         self.g_nn[4].bias = nn.Parameter(new_bias_g3)
         
@@ -515,7 +515,7 @@ class GNCDM(nn.Module):
         old_weight_theta = self.theta_agg_mat.weight.data
         new_weight_theta = torch.cat([old_weight_theta, torch.randn(self.user_dim, delta_K, device=self.device) * 0.01], dim=1)
         
-        self.theta_agg_mat = f_linear(self.n_know, self.user_dim, device=self.device)
+        self.theta_agg_mat = f_linear(self.n_know, self.user_dim).to(self.device)
         self.theta_agg_mat.weight = nn.Parameter(new_weight_theta)
         # bias remains the same size (user_dim)
         
@@ -523,7 +523,7 @@ class GNCDM(nn.Module):
         old_weight_psi = self.psi_agg_mat.weight.data
         new_weight_psi = torch.cat([old_weight_psi, torch.randn(self.item_dim, delta_K, device=self.device) * 0.01], dim=1)
         
-        self.psi_agg_mat = nn.Linear(self.n_know, self.item_dim, device=self.device)
+        self.psi_agg_mat = nn.Linear(self.n_know, self.item_dim).to(self.device)
         self.psi_agg_mat.weight = nn.Parameter(new_weight_psi)
         # bias remains the same size (item_dim)
         

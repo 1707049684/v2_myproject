@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
-"""NIPS34 · random_split · 只跑「剩余 4 个方法」（Ours 6 法已另跑、结果见 Ours CSV）。
+"""NIPS34 · random_split · 只跑 X-DER（Ours 6 法已另跑、结果见 Ours CSV）。
 
 固定超参（不扫 lambda）：
-  EWC    (lambda=10000)
-  DER++  (mem=5000)
-  C-LoRA (lambda=10000)
   X-DER  (mem=5000)
-前三者复用 cl_baselines_random_split（把 λ 扫描列表 pin 成单值），X-DER 复用 run_xder。
 口径与主入口一致：random_split / buf 无泄漏预测，ΔK=auto_new_concepts(0.34)，alpha=0.20。
 
 产物：
-  incremental_result/baselines_nips34_random_split.{csv,md}        —— 这 4 行（始终写）
-  incremental_result/all_methods_nips34_random_split.{csv,md}      —— 若 Ours CSV 存在则合成 10 行总表
+  incremental_result/baselines_nips34_random_split.{csv,md}        —— X-DER 单行（始终写）
+  incremental_result/all_methods_nips34_random_split.{csv,md}      —— 若 Ours CSV 存在则合成 7 行总表
 Ours CSV 默认取 incremental_result/incremental_results_nips34_random_split.csv（列首为 Model）；
 把你那份部分结果放到该路径（或改下面的 OURS_CSV）即可自动合表。
 
@@ -41,9 +37,9 @@ N_USER, N_ITEM, N_KNOW = 4918, 948, 57
 ALPHA = 0.20
 
 # 固定超参
-EWC_LAMBDA = 10000
-CLORA_LAMBDA = 10000
-MEM = 5000  # DER++ 与 X-DER 共用（cl_baselines.MEM_SIZE 默认即 5000）
+# EWC_LAMBDA = 10000
+# CLORA_LAMBDA = 10000
+MEM = 5000  # X-DER buffer_size
 
 # Ours 6 法结果（列首为 Model）；放到此路径即自动合成 all_methods 总表
 OURS_CSV = os.path.join(SAVE_DIR, f"incremental_results_{PREFIX}_random_split.csv")
@@ -75,9 +71,9 @@ def main():
         print("⚠️ NIPS34 交互量大(1.38M),建议 GPU 服务器。")
 
     # pin λ 扫描为单值（DER++/X-DER 的 mem 由 cl_baselines.MEM_SIZE=5000 提供）
-    clbase.EWC_LAMBDA_SWEEP = [EWC_LAMBDA]
-    clbase.CLORA_LAMBDA_SWEEP = [CLORA_LAMBDA]
-    clbase.MEM_SIZE = MEM
+    # clbase.EWC_LAMBDA_SWEEP = [EWC_LAMBDA]
+    # clbase.CLORA_LAMBDA_SWEEP = [CLORA_LAMBDA]
+    # clbase.MEM_SIZE = MEM
 
     Q_path = os.path.join(DATA_DIR, f"{PREFIX}_Q_matrix.npy")
     Q = np.load(Q_path)
@@ -98,10 +94,10 @@ def main():
     }
 
     # ── 三个 CL 基线（固定 λ）────────────────────────────────────────────
-    meta = clbase.load_random(cfg)
-    ewc_row = clbase.run_ewc(meta, device)[0]  # 单值 λ → 单行
-    der_row = clbase.run_der(meta, device)
-    clora_row = clbase.run_clora(meta, device)[0]
+    # meta = clbase.load_random(cfg)
+    # ewc_row = clbase.run_ewc(meta, device)[0]  # 单值 λ → 单行
+    # der_row = clbase.run_der(meta, device)
+    # clora_row = clbase.run_clora(meta, device)[0]
 
     # ── X-DER（同 G-NCDM 骨干, buf 口径）─────────────────────────────────
     xder_row = run_xder(
@@ -118,18 +114,18 @@ def main():
         new_concepts=new_concepts,
         alpha=ALPHA,
         buffer_size=MEM,
+        n_epoch=15,  # ← 修改为 15 epochs
     )
 
     baseline_rows = [
-        {k: ewc_row[k] for k in COLS},
-        {k: der_row[k] for k in COLS},
-        {k: clora_row[k] for k in COLS},
+        # {k: ewc_row[k] for k in COLS},
+        # {k: der_row[k] for k in COLS},
+        # {k: clora_row[k] for k in COLS},
         {k: xder_row[k] for k in COLS},
     ]
     note_base = (
-        f"\n*口径*：{PREFIX} random_split，固定超参 EWC λ={EWC_LAMBDA}、DER++ mem={MEM}、"
-        f"C-LoRA λ={CLORA_LAMBDA}、X-DER mem={MEM}；alpha={ALPHA}。\n"
-        "*TMD*：X-DER 在 G-NCDM 概念 θ 空间；EWC/DER++/C-LoRA 在 embedding 空间，量级不可与之直接比，仅看是否>0。\n"
+        f"\n*口径*：{PREFIX} random_split，固定超参 X-DER mem={MEM}；alpha={ALPHA}。\n"
+        "*TMD*：X-DER 在 G-NCDM 概念 θ 空间。\n"
     )
     _write_table(baseline_rows, os.path.join(SAVE_DIR, f"baselines_{PREFIX}_random_split"), note_base)
 
@@ -140,19 +136,18 @@ def main():
         all_rows = ours_rows + baseline_rows
         note_all = (
             f"\n*口径*：{PREFIX} random_split（test 用户与训练共享，预测口径）。Ours/X-DER 走 G-NCDM "
-            "骨干 buf 无泄漏预测，EWC/DER++/C-LoRA（CognitiveBackbone）直接预测；均无自信息，可逐行对比。\n"
-            f"*固定超参*：EWC λ={EWC_LAMBDA}、DER++ mem={MEM}、C-LoRA λ={CLORA_LAMBDA}、X-DER mem={MEM}。\n"
-            "*TMD 红线*：Ours/X-DER 行 TMD 同在 G-NCDM 概念 θ 空间可互比；EWC/DER++/C-LoRA 行 TMD 在 "
-            "embedding 空间，量级不可与之直接比，仅看是否>0。骨干不同，勿称纯策略胜出。\n"
+            "骨干 buf 无泄漏预测；均无自信息，可逐行对比。\n"
+            f"*固定超参*：X-DER mem={MEM}。\n"
+            "*TMD 红线*：Ours/X-DER 行 TMD 同在 G-NCDM 概念 θ 空间可互比。\n"
         )
         _write_table(
             all_rows, os.path.join(SAVE_DIR, f"all_methods_{PREFIX}_random_split"), note_all
         )
-        print(f"\n完成：all_methods_{PREFIX}_random_split.csv（Ours 6 + 4 基线 = {len(all_rows)} 行）")
+        print(f"\n完成：all_methods_{PREFIX}_random_split.csv（Ours 6 + X-DER = {len(all_rows)} 行）")
     else:
         print(
             f"\n⚠️ 未找到 Ours CSV：{OURS_CSV}\n"
-            f"   已写出 4 行基线表 baselines_{PREFIX}_random_split.csv。\n"
+            f"   已写出 X-DER 单行表 baselines_{PREFIX}_random_split.csv。\n"
             "   把你的 Ours 部分结果（列首 Model）放到上述路径后重跑即可自动合成 all_methods 总表。"
         )
 
