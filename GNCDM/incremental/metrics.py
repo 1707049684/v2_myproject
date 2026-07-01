@@ -12,16 +12,16 @@ import torch
 from torch.optim.lr_scheduler import _LRScheduler
 
 
-def calculate_tmd(theta_old: np.ndarray, theta_new: np.ndarray, K_old: int) -> float:
+def calculate_rd(theta_old: np.ndarray, theta_new: np.ndarray, K_old: int) -> float:
     """
-    Calculate Trait Manifold Drift (TMD) metric.
+    Calculate Representation Drift (RD) metric.
     
-    TMD measures the average root mean square deviation of the latent
+    RD measures the average root mean square deviation of the latent
     trait vectors in the old knowledge dimension before and after
     incremental learning.
     
     Formula:
-        TMD = mean(||theta_old - theta_new[:K_old]||_2 / sqrt(K_old))
+        RD = mean(||theta_old - theta_new[:K_old]||_2 / sqrt(K_old))
     
     Args:
         theta_old: np.ndarray, original theta matrix (n_user, n_know)
@@ -29,29 +29,23 @@ def calculate_tmd(theta_old: np.ndarray, theta_new: np.ndarray, K_old: int) -> f
         K_old: int, original knowledge dimension
     
     Returns:
-        float, the Trait Manifold Drift value
+        float, the Representation Drift value
     
     Example:
         >>> theta_old = np.random.randn(100, 10)
         >>> theta_new = np.random.randn(100, 15)
-        >>> tmd = calculate_tmd(theta_old, theta_new, 10)
-        >>> print(f"TMD: {tmd:.4f}")
+        >>> rd = calculate_rd(theta_old, theta_new, 10)
+        >>> print(f"RD: {rd:.4f}")
     """
-    # Extract old dimensions from new theta
     theta_new_old_dim = theta_new[:, :K_old]
-    
-    # Compute per-user L2 norm
     per_user_norm = np.linalg.norm(theta_old - theta_new_old_dim, axis=1)
-    
-    # Compute normalized TMD
-    tmd = np.mean(per_user_norm / np.sqrt(K_old))
-    
-    return float(tmd)
+    rd = np.mean(per_user_norm / np.sqrt(K_old))
+    return float(rd)
 
 
-def calculate_tmd_torch(theta_old: torch.Tensor, theta_new: torch.Tensor, K_old: int) -> torch.Tensor:
+def calculate_rd_torch(theta_old: torch.Tensor, theta_new: torch.Tensor, K_old: int) -> torch.Tensor:
     """
-    PyTorch version of TMD calculation.
+    PyTorch version of RD calculation.
     
     Args:
         theta_old: torch.Tensor, original theta matrix (n_user, n_know)
@@ -59,12 +53,12 @@ def calculate_tmd_torch(theta_old: torch.Tensor, theta_new: torch.Tensor, K_old:
         K_old: int, original knowledge dimension
     
     Returns:
-        torch.Tensor, the Trait Manifold Drift value
+        torch.Tensor, the Representation Drift value
     """
     theta_new_old_dim = theta_new[:, :K_old]
     per_user_norm = torch.norm(theta_old - theta_new_old_dim, dim=1)
-    tmd = torch.mean(per_user_norm / math.sqrt(K_old))
-    return tmd
+    rd = torch.mean(per_user_norm / math.sqrt(K_old))
+    return rd
 
 
 class LinearWarmupScheduler(_LRScheduler):

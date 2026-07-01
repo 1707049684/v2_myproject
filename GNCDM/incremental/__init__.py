@@ -8,15 +8,15 @@ incremental learning in the G-NCDM model.
 Components:
     - TopologyAwareDecoupledLoss: Decoupled loss for knowledge distillation
     - IncrementalDecoupledLoss: Simplified loss interface
-    - calculate_tmd: Trait Manifold Drift calculator
+    - calculate_rd: Representation Drift calculator
     - LinearWarmupScheduler: Learning rate warm-up scheduler
     - CosineAnnealingWarmup: Combined warm-up and annealing scheduler
 """
 
 from .loss import TopologyAwareDecoupledLoss, IncrementalDecoupledLoss
 from .metrics import (
-    calculate_tmd, 
-    calculate_tmd_torch,
+    calculate_rd, 
+    calculate_rd_torch,
     LinearWarmupScheduler, 
     CosineAnnealingWarmup
 )
@@ -24,8 +24,8 @@ from .metrics import (
 __all__ = [
     'TopologyAwareDecoupledLoss',
     'IncrementalDecoupledLoss',
-    'calculate_tmd',
-    'calculate_tmd_torch',
+    'calculate_rd',
+    'calculate_rd_torch',
     'LinearWarmupScheduler',
     'CosineAnnealingWarmup'
 ]

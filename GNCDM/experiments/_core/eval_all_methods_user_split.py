@@ -13,8 +13,8 @@ CognitiveBackbone）** 放进一个脚本，在**同一份 support/query 划分*
 
 可比性边界（务必守住）：
 - AUC/ACC/F1/RMSE：九方法同划分、**同一批 query 行**、同 support/query 协议 → 可逐行直接对比。
-- TMD vs TMD\*：Ours 的 TMD 在 **G-NCDM 概念 θ 空间**（架构隔离 → 0 或极小）；基线的 TMD\* 在
-  **CognitiveBackbone 学生 embedding 空间**，**量级不可与 Ours 的 TMD 直接比**，只看"是否>0"。
+- RD vs RD\*：Ours 的 RD 在 **G-NCDM 概念 θ 空间**（架构隔离 → 0 或极小）；基线的 RD\* 在
+  **CognitiveBackbone 学生 embedding 空间**，**量级不可与 Ours 的 RD 直接比**，只看"是否>0"。
 - 骨干不同（基线非 G-NCDM）：勿声称"纯策略"胜出，只说"同划分/同口径下 Ours 全面占优"。
 
 本文件是 **库**（位于 experiments/_core/），提供 user_split 的 `run_one(...)`，被
@@ -41,7 +41,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from core.model import GNCDM
-from core.train import calculate_tmd
+from core.train import calculate_rd
 
 # 复用主实验的 G-NCDM 训练/工具函数（import，不改原文件）
 from run_incremental_math1 import (
@@ -377,7 +377,7 @@ def run_ours(ours, meta, device):
                 "ACC_new": r_new["acc"] if r_new else "-",
                 "F1_old": r_old["f1"],
                 "F1_new": r_new["f1"] if r_new else "-",
-                "TMD": tmd if tmd is not None else "",
+                "RD": tmd if tmd is not None else "",
             }
         )
         ns = f" | 新 AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f}" if r_new else ""
@@ -444,12 +444,12 @@ def run_ours(ours, meta, device):
         for h in handles:
             h.remove()
         populate_buffers(m, log_full, device)
-        # NOTE: TMD 只量 θ 旧维漂移（仅 theta[:, :K_old]），量不到聚合矩阵旧列权重/共享 bias 漂移。
+        # NOTE: RD 只量 θ 旧维漂移（仅 theta[:, :K_old]），量不到聚合矩阵旧列权重/共享 bias 漂移。
         # θ_old 来自旧编码器 f_nn，而 expand_topology 的 _freeze_parameters() 已冻结 f_nn
-        # （requires_grad=False）→ 即便 Ours-Ablated 传 list(m.parameters()) 也训不动它 → TMD=0；
+        # （requires_grad=False）→ 即便 Ours-Ablated 传 list(m.parameters()) 也训不动它 → RD=0；
         # 但 Ablated 训练了重建后的聚合矩阵旧列权重+bias（新题 Q_old≠0，二者有真实梯度），漂移使旧任务
-        # 真退化，看 AUC_old 而非 TMD。详细机理见 run_incremental_math1.py 的 run_strategy / DNA 注释。
-        tmd = calculate_tmd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
+        # 真退化，看 AUC_old 而非 RD。详细机理见 run_incremental_math1.py 的 run_strategy / DNA 注释。
+        tmd = calculate_rd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
 
     print("\n=== Ours-2. Ablated ===")
@@ -521,7 +521,7 @@ def _brow(method, old_m, new_m, tmd):
         "ACC_new": new_m[2],
         "F1_old": old_m[3],
         "F1_new": new_m[3],
-        "TMD": tmd,
+        "RD": tmd,
     }
 
 
@@ -645,7 +645,7 @@ def _pick_balanced(rows):
 
 
 # ==========================================================================
-# 合并表 + markdown（带 TMD 红线脚注）
+# 合并表 + markdown（带 RD 红线脚注）
 # ==========================================================================
 COLS = [
     "Method",
@@ -657,7 +657,7 @@ COLS = [
     "ACC_new",
     "F1_old",
     "F1_new",
-    "TMD",
+    "RD",
 ]
 
 
@@ -684,8 +684,8 @@ def write_tables(split_name, ours_rows, ewc_rows, der_row, clora_rows):
     note = (
         f"\n*口径*：全部 9 方法在 **{split_name}** 同一份 support/query 划分（frac={SUPPORT_FRAC}, "
         f"seed={SPLIT_SEED}）的**同一批 query 行**上评测，AUC/ACC/F1/RMSE 可逐行直接对比。\n"
-        f"*TMD 红线*：Ours 行的 TMD 在 **G-NCDM 概念 θ 空间**（架构隔离→0/极小）；"
-        f"EWC/DER/C-LoRA 行的 TMD 在 **embedding 空间**，量级**不可**与 Ours 直接比，仅看是否>0。\n"
+        f"*RD 红线*：Ours 行的 RD 在 **G-NCDM 概念 θ 空间**（架构隔离→0/极小）；"
+        f"EWC/DER/C-LoRA 行的 RD 在 **embedding 空间**，量级**不可**与 Ours 直接比，仅看是否>0。\n"
         f"*均衡点*：EWC λ={ewc_best['lambda']}、C-LoRA λ={clora_best['lambda']}"
         f"（各取 avg(AUC_old,AUC_new) 最大）。骨干不同，勿称纯策略胜出。\n"
     )

@@ -60,7 +60,7 @@ def append_xder_to_all_methods(xder_row):
         f"\n*口径*：{PREFIX} random_split（test 用户与训练共享，预测口径）。Ours/X-DER 走 "
         "G-NCDM 骨干 buf 无泄漏预测，CL 基线（CognitiveBackbone）直接预测；均无自信息，可逐行对比。\n"
         "*pos_rate≈0.79 偏高*：ACC 平凡基线就有 0.79，主指标看 AUC。\n"
-        "*TMD 红线*：Ours/X-DER 行 TMD 同在 G-NCDM 概念 θ 空间可互比；EWC/DER++/C-LoRA 行 TMD 在 "
+        "*RD 红线*：Ours/X-DER 行 RD 同在 G-NCDM 概念 θ 空间可互比；EWC/DER++/C-LoRA 行 RD 在 "
         "embedding 空间，量级不可与之直接比，仅看是否>0。骨干不同，勿称纯策略胜出。\n"
     )
     with open(base + ".md", "w", encoding="utf-8") as f:

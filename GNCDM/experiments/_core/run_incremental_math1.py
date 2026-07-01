@@ -32,7 +32,7 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import roc_auc_score, mean_squared_error, accuracy_score, f1_score
 
 from core.model import GNCDM
-from core.train import IDCDataset, calculate_tmd
+from core.train import IDCDataset, calculate_rd
 
 DATA_DIR = os.path.join(gncdm_dir, "data")
 SAVE_DIR = os.path.join(gncdm_dir, "incremental_result")
@@ -115,7 +115,7 @@ def train_real(
     desc="train",
     valid_df=None,
     buffer_log=None,
-    select_metric="acc",
+    select_metric="acc",  # 检查点按验证 ACC 选优；与基线（DER++ 早停亦按 ACC）同口径，保证比较公平
     eval_fn=None,
 ):
     """喂真实作答日志训练。params=要优化的参数列表（增量策略只传 'new' 参数）。
@@ -273,6 +273,7 @@ def run_experiment(
     new_concepts,
     alpha=0.8,
     run_strategies=None,
+    strategy_select_metric="acc",
 ):
     """在一个数据划分上跑 6 策略。数据集维度/新概念由参数传入（math1 与 a0910 共用）。
     mode='buf'：random-split → forward_using_buf 无泄漏预测口径（论文 RQ2）。
@@ -373,7 +374,7 @@ def run_experiment(
                 "ACC_new": r_new["acc"] if r_new else "-",
                 "F1_old": r_old["f1"],
                 "F1_new": r_new["f1"] if r_new else "-",
-                "TMD": tmd if tmd is not None else "",
+                "RD": tmd if tmd is not None else "",
             }
         )
         new_str = (
@@ -408,7 +409,7 @@ def run_experiment(
         desc="Base",
         eval_fn=base_eval_fn,
     )
-    populate_buffers(base, log_old, device)  # 取 Theta_buf 供 TMD 参照
+    populate_buffers(base, log_old, device)  # 取 Theta_buf 供 RD 参照
     base_theta_old = base.get_Theta_buf().clone()
     record("Base", base_final(), None, None)
 
@@ -445,20 +446,21 @@ def run_experiment(
             n_epoch=n_epoch,
             desc=name,
             eval_fn=strat_eval_fn(valid_df),
+            select_metric=strategy_select_metric,
         )
         for h in handles:
             h.remove()
 
-        populate_buffers(m, log_full, device)  # TMD 参照（+ buf 模式下供最终评测）
-        # NOTE: TMD 只量潜在能力向量 θ 的旧维漂移（calculate_tmd 仅看 theta[:, :K_old]），
+        populate_buffers(m, log_full, device)  # RD 参照（+ buf 模式下供最终评测）
+        # NOTE: RD 只量潜在能力向量 θ 的旧维漂移（calculate_rd 仅看 theta[:, :K_old]），
         # 量不到解码/读出通路（重建后的 theta_agg_mat/psi_agg_mat 的旧列权重与共享 bias）的漂移。
         # θ_old 由旧编码器 f_nn 产生，而 expand_topology 第一步 _freeze_parameters() 已把 f_nn
         # 置 requires_grad=False；即使 Ours-Ablated 传 list(m.parameters())，f_nn 也拿不到梯度、
-        # 不更新 → θ_old 恒等 base → TMD 在 DNA 与 Ablated 上都精确为 0（与 Q 无关）。
+        # 不更新 → θ_old 恒等 base → RD 在 DNA 与 Ablated 上都精确为 0（与 Q 无关）。
         # 但 Ablated 训练了重建后的聚合矩阵旧列权重 + 共享 bias：本数据集新题 Q_old≠0（每道新题
         # 都碰旧概念），二者都有真实梯度、会漂移，使旧任务真退化 → 体现在 AUC_old
-        # （Base 0.8072 → Ablated 0.7381）而非 TMD。判断 Ablated 是否遗忘看 AUC_old，勿被 TMD=0 误导。
-        tmd = calculate_tmd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
+        # （Base 0.8072 → Ablated 0.7381）而非 RD。判断 Ablated 是否遗忘看 AUC_old，勿被 RD=0 误导。
+        tmd = calculate_rd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
         return m
 
@@ -480,7 +482,7 @@ def run_experiment(
     #   - mask_agg_old=True（⊥-mask/OCM）：把重建后聚合矩阵旧概念列 [:, :K_old] 的梯度清零。
     # 两道合起来令旧任务 bit-identical（AUC_old=Base）。Ours-Ablated 用 list(m.parameters())
     # 无差别训练重建后聚合矩阵的全列+bias（无 mask）→ 旧列权重与 bias 双双漂移 → AUC_old 下降。
-    # f_nn 两者都冻结，故 θ/TMD 不受影响，详见上方 TMD NOTE。
+    # f_nn 两者都冻结，故 θ/RD 不受影响，详见上方 RD NOTE。
     run_strategy(
         "Ours (Dynamic DNA)",
         lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),

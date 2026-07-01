@@ -4,7 +4,7 @@
 为什么用 G-NCDM(而非 cl_baselines 的 CognitiveBackbone):X-DER 的 future/anti-activation 需要
 "新概念 ΔK 在模型里是可寻址的参数通道"。CognitiveBackbone 只吃 (user_id,item_id)、不读 Q、
 无概念轴,ΔK 无落点;G-NCDM 的 θ/ψ 是 per-concept、读 Q 掩码,ΔK 落成实在的列。额外红利:
-X-DER 与 Ours 同骨干 → TMD 在同一个概念 θ 空间,可与 Ours 行直接对比。
+X-DER 与 Ours 同骨干 → RD 在同一个概念 θ 空间,可与 Ours 行直接对比。
 
 CDM 没有"分类输出头",故按 route A 把 X-DER 核心算子高保真映射到 BCE + 潜在特质 θ 底座:
 
@@ -57,7 +57,7 @@ from run_incremental_math1 import (  # noqa: E402  (依赖 sys.path 注入)
     train_real,
 )
 from core.model import GNCDM  # noqa: E402
-from core.train import calculate_tmd  # noqa: E402
+from core.train import calculate_rd  # noqa: E402
 
 COLS = [
     "Method",
@@ -69,7 +69,7 @@ COLS = [
     "ACC_new",
     "F1_old",
     "F1_new",
-    "TMD",
+    "RD",
 ]
 
 
@@ -289,7 +289,7 @@ def run_xder(
         eval_fn=base_eval_fn,
     )
     populate_buffers(base, log_old, device)
-    base_theta_old = base.get_Theta_buf().clone()  # TMD 参照
+    base_theta_old = base.get_Theta_buf().clone()  # RD 参照
 
     # ---- 记忆库(存 raw logit) ----
     buffer = build_buffer(base, train_old, log_old, device, buffer_size)
@@ -321,11 +321,11 @@ def run_xder(
         buf_batch=buf_batch,
     )
 
-    # ---- 评测(buf 无泄漏, 逐行对齐 Ours) + TMD ----
+    # ---- 评测(buf 无泄漏, 逐行对齐 Ours) + RD ----
     populate_buffers(model, log_full, device)
     r_old = evaluate_buf(model, test_old, device)
     r_new = evaluate_buf(model, test_new, device)
-    tmd = calculate_tmd(base_theta_old.to(device), model.get_Theta_buf().to(device), n_know_old)
+    tmd = calculate_rd(base_theta_old.to(device), model.get_Theta_buf().to(device), n_know_old)
 
     method = f"X-DER (mem={buffer_size})"
     row = {
@@ -338,13 +338,13 @@ def run_xder(
         "ACC_new": r_new["acc"],
         "F1_old": r_old["f1"],
         "F1_new": r_new["f1"],
-        "TMD": tmd,
+        "RD": tmd,
     }
     print(
         f"\n  [{method}]\n"
         f"    旧: AUC={r_old['auc']:.4f} ACC={r_old['acc']:.4f} F1={r_old['f1']:.4f}\n"
         f"    新: AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f} F1={r_new['f1']:.4f}\n"
-        f"    TMD={tmd:.4f}（与 Ours 同 θ 空间,可直接对比）"
+        f"    RD={tmd:.4f}（与 Ours 同 θ 空间,可直接对比）"
     )
 
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -364,7 +364,7 @@ def run_xder(
         f"*X-DER 损失*:L_BCE(new)+α·L_KD(logit)+β·L_BCE_buf+λ·L_Future;memory revision(γ clamp)。\n"
         f"*超参*:mem={buffer_size}, α={alpha_kd}, β={beta_buf}, λ={lam_future}, γ={gamma}, "
         f"alpha={alpha}, epochs={n_epoch}。\n"
-        "*TMD*:与 Ours 同在 G-NCDM 概念 θ 空间(calculate_tmd 取前 K_old 列),可与 Ours 行直接比。\n"
+        "*RD*:与 Ours 同在 G-NCDM 概念 θ 空间(calculate_rd 取前 K_old 列),可与 Ours 行直接比。\n"
         "*L_Future*:CDM 无类槽,以 ΔK 潜通道反激活 mean(relu(θ_ΔK)^2) 再诠释 X-DER future-prep,"
         "论文须注明为 CDM 适配而非原类头机制。\n"
     )
@@ -384,7 +384,9 @@ _SPLIT_SEED = 7
 
 
 def _split_sq(df):
-    sup = df.groupby("user_id", group_keys=False).sample(frac=_SUPPORT_FRAC, random_state=_SPLIT_SEED)
+    sup = df.groupby("user_id", group_keys=False).sample(
+        frac=_SUPPORT_FRAC, random_state=_SPLIT_SEED
+    )
     return sup, df.drop(sup.index)
 
 
@@ -463,9 +465,15 @@ def run_xder_user_split(
     # Task1：训练 Base（与 random_split 版同口径）
     print("\n=== Task1: Base (X-DER user_split 起点) ===")
     base = GNCDM(
-        n_user=n_user, n_item=n_item_old, n_know=n_know_old,
-        user_dim=32, item_dim=32, alpha=alpha, Q_mat=Q_old,
-        monotonicity_assumption=True, device=device,
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        alpha=alpha,
+        Q_mat=Q_old,
+        monotonicity_assumption=True,
+        device=device,
     ).to(device)
 
     def base_eval_fn(m):
@@ -475,8 +483,14 @@ def run_xder_user_split(
         return evaluate_recon(m, qry_valid_old, sup_old_log, device)
 
     train_real(
-        base, train_old, log_old, list(base.parameters()), device,
-        n_epoch=15, desc="Base(X-DER-US)", eval_fn=base_eval_fn,
+        base,
+        train_old,
+        log_old,
+        list(base.parameters()),
+        device,
+        n_epoch=15,
+        desc="Base(X-DER-US)",
+        eval_fn=base_eval_fn,
     )
     populate_buffers(base, log_old, device)
     base_theta_old = base.get_Theta_buf().clone()
@@ -493,31 +507,47 @@ def run_xder_user_split(
         return evaluate_recon(m, qry_valid_comb, sup_valid_full_log, device)
 
     train_xder(
-        model, train_new, log_full, buffer, device, valid_eval_fn, n_know_old,
-        alpha_kd=alpha_kd, beta_buf=beta_buf, lam_future=lam_future, gamma=gamma,
-        n_epoch=n_epoch, lr=lr, batch_size=batch_size, buf_batch=buf_batch,
+        model,
+        train_new,
+        log_full,
+        buffer,
+        device,
+        valid_eval_fn,
+        n_know_old,
+        alpha_kd=alpha_kd,
+        beta_buf=beta_buf,
+        lam_future=lam_future,
+        gamma=gamma,
+        n_epoch=n_epoch,
+        lr=lr,
+        batch_size=batch_size,
+        buf_batch=buf_batch,
     )
 
-    # 评测（support/query，test 集）+ TMD
+    # 评测（support/query，test 集）+ RD
     populate_buffers(model, log_full, device)
     r_old = evaluate_recon(model, qry_test_old, sup_test_full_log, device)
     r_new = evaluate_recon(model, qry_test_new, sup_test_full_log, device)
-    tmd = calculate_tmd(base_theta_old.to(device), model.get_Theta_buf().to(device), n_know_old)
+    tmd = calculate_rd(base_theta_old.to(device), model.get_Theta_buf().to(device), n_know_old)
 
     method = f"X-DER (mem={buffer_size})"
     row = {
         "Method": method,
-        "AUC_old": r_old["auc"], "AUC_new": r_new["auc"],
-        "RMSE_old": r_old["rmse"], "RMSE_new": r_new["rmse"],
-        "ACC_old": r_old["acc"], "ACC_new": r_new["acc"],
-        "F1_old": r_old["f1"], "F1_new": r_new["f1"],
-        "TMD": tmd,
+        "AUC_old": r_old["auc"],
+        "AUC_new": r_new["auc"],
+        "RMSE_old": r_old["rmse"],
+        "RMSE_new": r_new["rmse"],
+        "ACC_old": r_old["acc"],
+        "ACC_new": r_new["acc"],
+        "F1_old": r_old["f1"],
+        "F1_new": r_new["f1"],
+        "RD": tmd,
     }
     print(
         f"\n  [{method}]\n"
         f"    旧: AUC={r_old['auc']:.4f} ACC={r_old['acc']:.4f} F1={r_old['f1']:.4f}\n"
         f"    新: AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f} F1={r_new['f1']:.4f}\n"
-        f"    TMD={tmd:.4f}（与 Ours 同 θ 空间，可直接对比）"
+        f"    RD={tmd:.4f}（与 Ours 同 θ 空间，可直接对比）"
     )
 
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -538,11 +568,9 @@ def run_xder_user_split(
         f"*X-DER 损失*：L_BCE(new)+α·L_KD(logit)+β·L_BCE_buf+λ·L_Future；memory revision(γ clamp)。\n"
         f"*超参*：mem={buffer_size}, α={alpha_kd}, β={beta_buf}, λ={lam_future}, γ={gamma}, "
         f"alpha={alpha}, epochs={n_epoch}。\n"
-        "*TMD*：与 Ours 同在 G-NCDM 概念 θ 空间（populate_buffers 取训练用户），可与 Ours 行直接比。\n"
+        "*RD*：与 Ours 同在 G-NCDM 概念 θ 空间（populate_buffers 取训练用户），可与 Ours 行直接比。\n"
     )
-    with open(
-        os.path.join(SAVE_DIR, f"xder_{ds_name}_user_split.md"), "w", encoding="utf-8"
-    ) as f:
+    with open(os.path.join(SAVE_DIR, f"xder_{ds_name}_user_split.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n" + note)
 
     print(f"\n>>> 写入 {csv_path}")

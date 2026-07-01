@@ -125,25 +125,29 @@ def main():
     ]
     note_base = (
         f"\n*口径*：{PREFIX} random_split，固定超参 X-DER mem={MEM}；alpha={ALPHA}。\n"
-        "*TMD*：X-DER 在 G-NCDM 概念 θ 空间。\n"
+        "*RD*：X-DER 在 G-NCDM 概念 θ 空间。\n"
     )
-    _write_table(baseline_rows, os.path.join(SAVE_DIR, f"baselines_{PREFIX}_random_split"), note_base)
+    _write_table(
+        baseline_rows, os.path.join(SAVE_DIR, f"baselines_{PREFIX}_random_split"), note_base
+    )
 
     # ── 若 Ours CSV 存在 → 合成 10 行 all_methods 总表 ───────────────────
     if os.path.isfile(OURS_CSV):
-        ours = pd.read_csv(OURS_CSV).rename(columns={"Model": "Method"})
+        ours = pd.read_csv(OURS_CSV).rename(columns={"Model": "Method", "TMD": "RD"})
         ours_rows = ours.to_dict("records")
         all_rows = ours_rows + baseline_rows
         note_all = (
             f"\n*口径*：{PREFIX} random_split（test 用户与训练共享，预测口径）。Ours/X-DER 走 G-NCDM "
             "骨干 buf 无泄漏预测；均无自信息，可逐行对比。\n"
             f"*固定超参*：X-DER mem={MEM}。\n"
-            "*TMD 红线*：Ours/X-DER 行 TMD 同在 G-NCDM 概念 θ 空间可互比。\n"
+            "*RD 红线*：Ours/X-DER 行 RD 同在 G-NCDM 概念 θ 空间可互比。\n"
         )
         _write_table(
             all_rows, os.path.join(SAVE_DIR, f"all_methods_{PREFIX}_random_split"), note_all
         )
-        print(f"\n完成：all_methods_{PREFIX}_random_split.csv（Ours 6 + X-DER = {len(all_rows)} 行）")
+        print(
+            f"\n完成：all_methods_{PREFIX}_random_split.csv（Ours 6 + X-DER = {len(all_rows)} 行）"
+        )
     else:
         print(
             f"\n⚠️ 未找到 Ours CSV：{OURS_CSV}\n"

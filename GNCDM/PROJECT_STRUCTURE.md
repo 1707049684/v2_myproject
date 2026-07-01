@@ -67,7 +67,7 @@ GNCDM/
 ```python
 from core.model import GNCDM
 from incremental.loss import TopologyAwareDecoupledLoss
-from incremental.metrics import calculate_tmd, LinearWarmupScheduler
+from incremental.metrics import calculate_rd, LinearWarmupScheduler
 from core.train import AsymmetricHybridDataLoader
 
 # 1. 加载旧模型
@@ -103,5 +103,5 @@ python experiments/test_incremental.py
 | G-NCDM 模型 | `from core.model import GNCDM` |
 | 训练函数 | `from core.train import train, eval_incremental` |
 | 解耦损失 | `from incremental.loss import TopologyAwareDecoupledLoss` |
-| TMD 计算器 | `from incremental.metrics import calculate_tmd` |
+| RD 计算器 | `from incremental.metrics import calculate_rd` |
 | LR 预热 | `from incremental.metrics import LinearWarmupScheduler` |

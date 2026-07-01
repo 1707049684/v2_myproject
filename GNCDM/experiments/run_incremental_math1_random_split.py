@@ -22,6 +22,7 @@ import cl_baselines_random_split as clbase
 DATA_DIR = os.path.join(gncdm_dir, "data")
 NEW_CONCEPTS = [0, 1, 3, 6]
 ALPHA = 0.20
+STRATEGY_SELECT_METRIC = "auc"
 
 
 def main():
@@ -49,6 +50,7 @@ def main():
         n_know_total=11,
         new_concepts=NEW_CONCEPTS,
         alpha=ALPHA,
+        strategy_select_metric=STRATEGY_SELECT_METRIC,
     )
     clbase.run_one(
         {

@@ -9,8 +9,8 @@
 "预测"（都无自信息），AUC/ACC/F1/RMSE 可逐行对比。严格拓扑二分（math1 用 ΔK=[0,1,3,6]；
 a0910 用 auto_new_concepts 选最冷门概念），测试行与 Ours 主表一致。
 
-可比性红线：骨干 CognitiveBackbone≠G-NCDM（只说"同划分/同口径下"，勿称纯策略胜出）；TMD* 在
-embedding 空间，量级**不可**与 Ours 概念 θ TMD 直接比，仅看是否>0。
+可比性红线：骨干 CognitiveBackbone≠G-NCDM（只说"同划分/同口径下"，勿称纯策略胜出）；RD* 在
+embedding 空间，量级**不可**与 Ours 概念 θ RD 直接比，仅看是否>0。
 
 运行（需 avalanche 给 EWC/DER）：
     pip install avalanche-lib
@@ -254,7 +254,7 @@ def _row(method, old_m, new_m, tmd):
         "ACC_new": new_m[2],
         "F1_old": old_m[3],
         "F1_new": new_m[3],
-        "TMD": tmd,
+        "RD": tmd,
     }
 
 
@@ -418,7 +418,7 @@ COLS = [
     "ACC_new",
     "F1_old",
     "F1_new",
-    "TMD",
+    "RD",
 ]
 
 
@@ -429,7 +429,9 @@ def _fmt(x):
 
 
 def merge_and_write(cfg, ewc_rows, der_row, clora_rows):
-    ours = pd.read_csv(os.path.join(SAVE_DIR, cfg["ours_csv"])).rename(columns={"Model": "Method"})
+    ours = pd.read_csv(os.path.join(SAVE_DIR, cfg["ours_csv"])).rename(
+        columns={"Model": "Method", "TMD": "RD"}
+    )
     ours_rows = ours.to_dict("records")
     ewc_best, clora_best = _pick_balanced(ewc_rows), _pick_balanced(clora_rows)
     merged = ours_rows + [
@@ -448,7 +450,7 @@ def merge_and_write(cfg, ewc_rows, der_row, clora_rows):
         f"\n*口径*：{cfg['name']} random_split（test 用户与训练共享，预测口径）。Ours 走 "
         "forward_using_buf 无泄漏预测，基线（CognitiveBackbone）直接预测；均无自信息，可逐行对比。\n"
         f"*均衡点*：EWC λ={ewc_best['lambda']}、C-LoRA λ={clora_best['lambda']}（各取 avg(AUC_old,AUC_new) 最大）。\n"
-        "*TMD 红线*：Ours 行 TMD 在 G-NCDM 概念 θ 空间；基线行 TMD 在 embedding 空间，量级不可与 "
+        "*RD 红线*：Ours 行 RD 在 G-NCDM 概念 θ 空间；基线行 RD 在 embedding 空间，量级不可与 "
         "Ours 直接比，仅看是否>0。骨干不同，勿称纯策略胜出。\n"
     )
     with open(

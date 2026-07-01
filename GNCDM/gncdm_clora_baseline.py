@@ -1,7 +1,7 @@
 """G-NCDM + C-LoRA 持续学习基线（Continual LoRA + 正交惩罚）—— random_split【方案二·最佳努力版】。
 
 把 C-LoRA 直接挂到**原版 G-NCDM 骨干**的 GDF(f_nn/g_nn)与 IRF(ncd) 全连接层上，与主表六策略
-**同骨干、同口径**（AUC/ACC/F1/RMSE 可并入主表；TMD 在真·概念 θ 空间，量级可与 Ours 直接比）。
+**同骨干、同口径**（AUC/ACC/F1/RMSE 可并入主表；RD 在真·概念 θ 空间，量级可与 Ours 直接比）。
 
 ═══ 相对早期退化版（findings 第二十三轮 AUC_new≈0.5）的三处「最佳努力」修复 ═══
 A. **归一化正交惩罚**：早期 `L_ortho = Σ‖W_base·ΔWᵀ‖²_F` 被巨阵 `g_nn[0]=Linear(n_user,K)` 的尺度
@@ -40,7 +40,7 @@ sys.path.insert(0, EXPERIMENTS_DIR)
 sys.path.insert(0, os.path.join(EXPERIMENTS_DIR, "_core"))  # 核心库已移入 experiments/_core/
 
 from core.model import GNCDM  # noqa: E402
-from core.train import calculate_tmd  # noqa: E402
+from core.train import calculate_rd  # noqa: E402
 from run_incremental_math1 import (  # noqa: E402
     SampleSet,
     build_log_mat,
@@ -320,7 +320,7 @@ def run_one_lambda(cfg, base_state, base_theta_ref, meta, lambda_ortho, device):
     populate_buffers(model, meta["log_full"], device)
     r_old = evaluate_buf(model, meta["test_old"], device)
     r_new = evaluate_buf(model, meta["test_new"], device)
-    tmd = calculate_tmd(
+    tmd = calculate_rd(
         base_theta_ref[:, :n_know_old].to(device), model.get_Theta_buf().to(device), n_know_old
     )
     return {
@@ -333,7 +333,7 @@ def run_one_lambda(cfg, base_state, base_theta_ref, meta, lambda_ortho, device):
         "ACC_new": r_new["acc"],
         "F1_old": r_old["f1"],
         "F1_new": r_new["f1"],
-        "TMD": tmd,
+        "RD": tmd,
     }
 
 
@@ -375,7 +375,7 @@ def run_sweep():
         rows.append(r)
         print(
             f"  [λ={lam}] 旧: AUC={r['AUC_old']:.4f} ACC={r['ACC_old']:.4f} | "
-            f"新: AUC={r['AUC_new']:.4f} ACC={r['ACC_new']:.4f} | TMD={r['TMD']:.4f}"
+            f"新: AUC={r['AUC_new']:.4f} ACC={r['ACC_new']:.4f} | RD={r['RD']:.4f}"
         )
 
     out = os.path.join(SAVE_DIR, f"clora_gncdm_lambda_sweep_{DATASET}_random_split.csv")
@@ -383,15 +383,13 @@ def run_sweep():
     print("\n" + "=" * 64)
     print(f" G-NCDM + C-LoRA λ_ortho 扫描（{DATASET} random_split，最佳努力版）")
     print("=" * 64)
-    print(
-        "\n| λ_ortho | AUC_old | AUC_new | ACC_old | ACC_new | F1_old | F1_new | TMD(concept-θ) |"
-    )
+    print("\n| λ_ortho | AUC_old | AUC_new | ACC_old | ACC_new | F1_old | F1_new | RD(concept-θ) |")
     print("|---|---|---|---|---|---|---|---|")
     for r in rows:
         print(
             f"| {r['ortho_lambda']} | {r['AUC_old']:.4f} | {r['AUC_new']:.4f} | "
             f"{r['ACC_old']:.4f} | {r['ACC_new']:.4f} | {r['F1_old']:.4f} | "
-            f"{r['F1_new']:.4f} | {r['TMD']:.4f} |"
+            f"{r['F1_new']:.4f} | {r['RD']:.4f} |"
         )
     print(f"\n结果已写入 {out}")
     print("=" * 64)

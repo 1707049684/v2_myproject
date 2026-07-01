@@ -41,7 +41,7 @@ from run_incremental_math1 import (
 )
 from run_incremental_a0910 import auto_new_concepts
 from core.model import GNCDM
-from core.train import calculate_tmd
+from core.train import calculate_rd
 
 repo_root = os.path.dirname(gncdm_dir)
 DATA_DIR = os.path.join(repo_root, "data", "a0910")
@@ -49,8 +49,16 @@ N_USER, N_ITEM, N_KNOW = 4163, 17746, 123
 ALPHA = 0.6
 
 COLS = [
-    "Method", "AUC_old", "AUC_new", "RMSE_old", "RMSE_new",
-    "ACC_old", "ACC_new", "F1_old", "F1_new", "TMD",
+    "Method",
+    "AUC_old",
+    "AUC_new",
+    "RMSE_old",
+    "RMSE_new",
+    "ACC_old",
+    "ACC_new",
+    "F1_old",
+    "F1_new",
+    "RD",
 ]
 
 
@@ -76,38 +84,53 @@ def run_ablations(ours, meta, device):
     rows = []
 
     def record(name, r_old, r_new, tmd):
-        rows.append({
-            "Method": name,
-            "AUC_old": r_old["auc"],
-            "AUC_new": r_new["auc"] if r_new else "-",
-            "RMSE_old": r_old["rmse"],
-            "RMSE_new": r_new["rmse"] if r_new else "-",
-            "ACC_old": r_old["acc"],
-            "ACC_new": r_new["acc"] if r_new else "-",
-            "F1_old": r_old["f1"],
-            "F1_new": r_new["f1"] if r_new else "-",
-            "TMD": tmd if tmd is not None else "",
-        })
+        rows.append(
+            {
+                "Method": name,
+                "AUC_old": r_old["auc"],
+                "AUC_new": r_new["auc"] if r_new else "-",
+                "RMSE_old": r_old["rmse"],
+                "RMSE_new": r_new["rmse"] if r_new else "-",
+                "ACC_old": r_old["acc"],
+                "ACC_new": r_new["acc"] if r_new else "-",
+                "F1_old": r_old["f1"],
+                "F1_new": r_new["f1"] if r_new else "-",
+                "RD": tmd if tmd is not None else "",
+            }
+        )
         ns = f" | 新 AUC={r_new['auc']:.4f} ACC={r_new['acc']:.4f}" if r_new else ""
         print(f"  [{name}] 旧 AUC={r_old['auc']:.4f} ACC={r_old['acc']:.4f}{ns}")
 
     # Base
     print("\n=== Base ===")
     base = GNCDM(
-        n_user=n_user, n_item=n_item_old, n_know=n_know_old,
-        user_dim=32, item_dim=32, alpha=alpha, Q_mat=Q_old,
-        monotonicity_assumption=True, device=device,
+        n_user=n_user,
+        n_item=n_item_old,
+        n_know=n_know_old,
+        user_dim=32,
+        item_dim=32,
+        alpha=alpha,
+        Q_mat=Q_old,
+        monotonicity_assumption=True,
+        device=device,
     ).to(device)
     train_real(
-        base, ours["train_old"], log_old, list(base.parameters()), device,
-        n_epoch=25, desc="Base", eval_fn=base_eval_fn,
+        base,
+        ours["train_old"],
+        log_old,
+        list(base.parameters()),
+        device,
+        n_epoch=25,
+        desc="Base",
+        eval_fn=base_eval_fn,
     )
     populate_buffers(base, log_old, device)
     base_theta_old = base.get_Theta_buf().clone()
     record(
         "Base",
         evaluate_recon(base, ours["qry_test_old"], ours["sup_test_old_log"], device),
-        None, None,
+        None,
+        None,
     )
 
     def run_strategy(name, params_fn, mask_agg_old=False):
@@ -116,22 +139,31 @@ def run_ablations(ours, meta, device):
         populate_buffers(m, log_full, device)
         handles = []
         if mask_agg_old:
+
             def make_col_mask(k_old):
                 def hook(grad):
                     g = grad.clone()
                     g[:, :k_old] = 0.0
                     return g
+
                 return hook
+
             handles.append(m.theta_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
             handles.append(m.psi_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
         train_real(
-            m, ours["train_new"], log_full, params_fn(m), device,
-            n_epoch=25, desc=name, eval_fn=strat_eval_fn(ours["qry_valid_new"]),
+            m,
+            ours["train_new"],
+            log_full,
+            params_fn(m),
+            device,
+            n_epoch=25,
+            desc=name,
+            eval_fn=strat_eval_fn(ours["qry_valid_new"]),
         )
         for h in handles:
             h.remove()
         populate_buffers(m, log_full, device)
-        tmd = calculate_tmd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
+        tmd = calculate_rd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
 
     # 参照：Ours-Ablated（同时消融两者）
@@ -162,9 +194,12 @@ def run_ablations(ours, meta, device):
     print("\n=== Ablated (w/o FrozenBias)（FrozenBias 消融，OrthoMask 保留）===")
     run_strategy(
         "Ablated (w/o FrozenBias)",
-        lambda m: new_params(m) + [
-            m.theta_agg_mat.weight, m.theta_agg_mat.bias,
-            m.psi_agg_mat.weight, m.psi_agg_mat.bias,
+        lambda m: new_params(m)
+        + [
+            m.theta_agg_mat.weight,
+            m.theta_agg_mat.bias,
+            m.psi_agg_mat.weight,
+            m.psi_agg_mat.bias,
         ],
         mask_agg_old=True,
     )
@@ -193,7 +228,7 @@ def write_table(rows):
         "\n*消融对象*：OrthoMask = theta_agg_mat/psi_agg_mat 旧列梯度归零（hook）；"
         "FrozenBias = DNA 只训 new_params+agg_mat.weight，不训 bias。\n"
         "*口径*：a0910 user_split，support/query（frac=0.5, seed=7）同 eval_all_methods 一致。\n"
-        "*TMD*：G-NCDM 概念 θ 空间（架构隔离→0/极小），仅 w/o-FrozenBias 训了 bias 可能略有漂移。\n"
+        "*RD*：G-NCDM 概念 θ 空间（架构隔离→0/极小），仅 w/o-FrozenBias 训了 bias 可能略有漂移。\n"
     )
     md_path = os.path.join(SAVE_DIR, "ablation_dna_a0910_user_split.md")
     with open(md_path, "w", encoding="utf-8") as f:
