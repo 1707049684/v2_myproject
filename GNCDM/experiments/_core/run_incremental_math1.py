@@ -493,10 +493,19 @@ def run_experiment(
     )
 
     print("\n=== 4. Ours (LoRA) ===")
+    # rank=min(16, n_know_new): LoRA's A(dim,rank)@B(rank,delta_K) product has rank <= delta_K
+    # regardless of `rank`, so rank > delta_K is pure redundant capacity that only slows
+    # convergence within the shared 15-epoch budget. math1's delta_K=4 << the project-wide 16
+    # (sized for a0910/junyi's much larger delta_K) was tanking AUC_new (0.67 vs DNA's 0.72);
+    # capping it here for math1 only, other datasets' scripts are untouched.
     run_strategy(
         "Ours (LoRA)",
         lambda m: m.expand_topology_lora(
-            delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded, M_old=n_item_old, rank=16
+            delta_M=n_item_new,
+            delta_K=n_know_new,
+            Q_expanded=Q_expanded,
+            M_old=n_item_old,
+            rank=min(16, n_know_new),
         ),
         lora_params,
         train_new,

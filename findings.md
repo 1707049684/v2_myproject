@@ -1045,3 +1045,40 @@ LoRA 对新概念的编码器与读出均为 **rank=16 瓶颈**（W_new=A@B；�
 ### 叙事价值（写论文用）
 - 可加一句话：「User-Split 冷启动下 LoRA 低秩因子充当隐式正则，support 越稀薄优势越稳（12/12 阳性，gap 随 frac↓ 单调↑）；Random-Split 容量充足时 DNA 满秩优势复现（第四十二轮）。二者在不同场景互补，DNA 为主变体、LoRA 为参数高效冷启动备选。」
 - 结果落 `incremental_result/verify_usersplit_frac_sweep.csv`（12 行）；验证脚本已删。
+
+---
+
+## 第四十四轮：基线方法传导式/归纳式归属厘清（代码核查）
+
+**背景**：论文对比表中 EWC/DER++/C-LoRA/X-DER/ICD 各自的模型范式归属需明确，以支撑"G-NCDM 归纳式推断"这一主卖点。逐一查实现代码，结论如下：
+
+### EWC — 传导式
+
+骨干 `CognitiveBackbone`（`cl_baselines_random_split.py:105-121`），用 `nn.Embedding(num_students)` / `nn.Embedding(num_items)` 按 ID 查表，新学生/新题必须在嵌入层新增一行并经过训练，不存在"喂作答日志即得画像"的推断函数。传导式。
+
+### DER++ — 传导式
+
+`run_der` 使用完全相同的 `CognitiveBackbone`（`cl_baselines_random_split.py:313`），只是持续学习策略换成 replay-based 的 Avalanche DER，骨干不变 → 传导式，与 EWC 同理。
+
+### C-LoRA — 归纳式（非传导）
+
+`gncdm_clora_baseline.py:42` 直接 `from core.model import GNCDM`，骨干与 Ours 完全相同（生成式编码器-解码器 + Q 矩阵可寻址拓扑扩展），不按 ID 查表。归纳式。
+
+### X-DER — 归纳式（非传导）
+
+`run_xder.py:59` 同样 `from core.model import GNCDM`，脚本头注释明确写明"不用 `CognitiveBackbone` 是因为 X-DER 的 future/anti-activation 需要'新概念 ΔK 在模型里是可寻址的参数通道'，CognitiveBackbone 只吃 `(user_id, item_id)`、不读 Q"。归纳式。
+
+### ICD — 对新学生归纳式；对新题/新知识：维度预分配、未经真正架构扩展考验
+
+- **新学生维度**：ICD 网络核心是两个 DTN（`EduCDM/ICD/sym/net/net.py:18-19`），输入为作答记录张量，`get_user_profiles` 对记录做前向计算（`l_dtn(records, r_mask)`），而非查嵌入表 → 这一维度是归纳式，与 G-NCDM 论文对"新学习者即时诊断"的主张同源。
+- **新题目/新知识维度**：`run_icd_a0910_A.py:164-176` 构造 ICD 时 `USER_N / ITEM_N / KNOW_N` 传入的是最终全量维度（非增量式扩容），等于预分配满编后逐步喂入流式数据，绕开了架构增长问题，未真正参与"拓扑扩展"这一对比维度。论文写作时需单独说明此点，不宜笼统归类为"传导式"，也不宜与真正做拓扑扩展的方法（Ours/C-LoRA/X-DER）直接放同一维度对比。
+
+### 总结表
+
+| 方法 | 骨干 | 传导式? | 代码依据 |
+|---|---|---|---|
+| EWC | `CognitiveBackbone`（ID 查嵌入） | **是** | `cl_baselines_random_split.py:278` |
+| DER++ | 同 `CognitiveBackbone` | **是** | `cl_baselines_random_split.py:313` |
+| C-LoRA | `core.model.GNCDM`（生成式骨干） | 否（归纳式） | `gncdm_clora_baseline.py:42,270` |
+| X-DER | `core.model.GNCDM`（生成式骨干） | 否（归纳式） | `run_xder.py:1-5,59` |
+| ICD | DTN 作答记录编码器（新学生归纳）；题目/知识维度预分配满编，未真正扩展 | 新学生：否；新题/知识：不适用 | `EduCDM/ICD/sym/net/net.py:18,37-49`；`run_icd_a0910_A.py:164-176` |

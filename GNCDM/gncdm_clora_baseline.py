@@ -17,9 +17,11 @@ C. **解冻新概念聚合列**：早期 `theta_agg_mat/psi_agg_mat` 的新概�
 G-NCDM 增量要**从零学新概念维度**，正交约束反而阻碍 → 唯有 Ours 的专用新分支胜任。本版已尽最佳
 努力调校，结论才站得住。
 
-运行（math1 小、可本地验证；a0910 17746 题建议 GPU 服务器）：
+运行（math1/junyi 小、可本地验证；a0910 17746 题建议 GPU 服务器）：
     cd GNCDM
-    python gncdm_clora_baseline.py            # DATASET 顶部常量切 "math1" / "a0910"
+    python gncdm_clora_baseline.py            # 命令行参数切 "math1" / "a0910" / "junyi"
+    python gncdm_clora_baseline.py junyi
+    python gncdm_clora_baseline.py a0910
 """
 
 import copy
@@ -56,11 +58,12 @@ REPO_ROOT = os.path.dirname(THIS_DIR)
 SAVE_DIR = os.path.join(THIS_DIR, "incremental_result")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# ===== 选择数据集（math1 可本地快速验证；a0910 建议 GPU 服务器）=====
+# ===== 选择数据集（math1/junyi 可本地快速验证；a0910 建议 GPU 服务器）=====
 # 优先级：命令行参数 > 环境变量 GNCDM_CLORA_DATASET > 默认 "math1"。
 #   python gncdm_clora_baseline.py a0910      # 服务器跑 a0910，无需改文件
+#   python gncdm_clora_baseline.py junyi
 DATASET = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GNCDM_CLORA_DATASET", "math1")
-assert DATASET in ("math1", "a0910"), f"未知 DATASET={DATASET}（应为 math1 / a0910）"
+assert DATASET in ("math1", "a0910", "junyi"), f"未知 DATASET={DATASET}（应为 math1 / a0910 / junyi）"
 
 CONFIGS = {
     "math1": {
@@ -73,17 +76,52 @@ CONFIGS = {
         "test": os.path.join(THIS_DIR, "data", "math1_test_0.8_0.2.csv"),
         "Q": os.path.join(THIS_DIR, "data", "math1_Q_matrix.npy"),
     },
+    # alpha 与主表 run_incremental_a0910_random_split.py 的 ALPHA 对齐（0.1 全扫见顶，
+    # 早前 0.9 未真扫、已被超越，此处同步更新以保证与 Base/Ours 同口径可比）。
     "a0910": {
         "n_user": 4163,
         "n_item": 17746,
         "n_know": 123,
-        "alpha": 0.9,
+        "alpha": 0.1,
         "new_concepts": "auto",
         "train": os.path.join(REPO_ROOT, "data", "a0910", "new_random_split", "train.csv"),
         "test": os.path.join(REPO_ROOT, "data", "a0910", "new_random_split", "test.csv"),
         "Q": os.path.join(REPO_ROOT, "data", "a0910", "Q_matrix.npy"),
     },
 }
+
+
+def _load_junyi_config():
+    """junyi 维度不像 math1/a0910 固定，从文件读（对齐 run_incremental_junyi_random_split.py）。
+    alpha=0.1 对齐主表 ALPHA（sweep_junyi_random_alpha.py 全扫选定）。"""
+    junyi_dir = os.path.join(REPO_ROOT, "data", "junyi")
+    q_path = os.path.join(junyi_dir, "Q_matrix.npy")
+    if not os.path.exists(q_path):
+        return None
+    Q = np.load(q_path)
+    n_item, n_know = int(Q.shape[0]), int(Q.shape[1])
+    rnd = os.path.join(junyi_dir, "new_random_split")
+    train, test = os.path.join(rnd, "train.csv"), os.path.join(rnd, "test.csv")
+    n_user = max(
+        int(pd.read_csv(os.path.join(rnd, f))["user_id"].max()) + 1
+        for f in ("train.csv", "valid.csv", "test.csv")
+    )
+    return {
+        "n_user": n_user,
+        "n_item": n_item,
+        "n_know": n_know,
+        "alpha": 0.1,
+        "new_concepts": "auto",
+        "train": train,
+        "test": test,
+        "Q": q_path,
+    }
+
+
+if DATASET == "junyi":
+    _junyi_cfg = _load_junyi_config()
+    assert _junyi_cfg is not None, f"未找到 junyi 数据（期望 {os.path.join(REPO_ROOT, 'data', 'junyi')}）"
+    CONFIGS["junyi"] = _junyi_cfg
 
 USER_DIM, ITEM_DIM = 32, 32
 LR = 1e-3
@@ -343,6 +381,8 @@ def run_sweep():
     print(f"device = {device} | dataset = {DATASET}")
     if device.type == "cpu" and DATASET == "a0910":
         print("[WARN] CPU 上 a0910(17746 题) 跑 G-NCDM+C-LoRA sweep 很慢，建议 GPU 服务器。")
+    if DATASET == "junyi":
+        print(f"[junyi] dims: n_user={cfg['n_user']} n_item={cfg['n_item']} n_know={cfg['n_know']}")
     print(
         f">>> 超参: rank={LORA_RANK} alpha={LORA_ALPHA} alpha_mix={cfg['alpha']} "
         f"base_ep={BASE_EPOCHS} clora_ep={CLORA_EPOCHS} lr={LR} λ_sweep={LAMBDA_ORTHO_SWEEP}"

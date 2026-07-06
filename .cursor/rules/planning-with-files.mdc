@@ -1,0 +1,45 @@
+---
+description: Planning-with-files workflow — use task_plan.md/findings.md/progress.md for multi-step work
+alwaysApply: true
+---
+
+# Planning with Files
+
+This project tracks multi-step work in three files at the project root.
+Read them before major decisions, update them after major actions.
+
+| File | Purpose | Update when |
+|---|---|---|
+| `task_plan.md` | Phases, status, decisions | After each phase completes or scope changes |
+| `findings.md` | Research, root causes, discoveries | After ANY discovery worth remembering |
+| `progress.md` | Session log, what was tried, results | Throughout the session |
+
+## Rules
+
+1. **Read before deciding.** Before starting a new phase or making an
+   architectural call, skim `task_plan.md` (current phase) and the tail of
+   `progress.md` (recent actions) — don't rely on conversation memory alone
+   for long-running work.
+2. **Log every discovery.** Root causes, surprising results, and decisions
+   belong in `findings.md`, not just in chat, so they survive a new session.
+3. **Update after acting.** After edits/commands that complete a step,
+   append to `progress.md`; if a phase finished, flip its status in
+   `task_plan.md`.
+4. **Never repeat a failed approach.** If `progress.md`/`findings.md` show an
+   approach already failed, mutate the approach — don't retry it verbatim.
+5. **3-strike protocol.** Attempt 1: diagnose & fix. Attempt 2: a genuinely
+   different approach (not a variant of attempt 1). Attempt 3: question
+   assumptions, search for alternatives. After 3 failures on the same
+   problem: stop and ask the user.
+6. **Skip this for simple tasks.** Single-file edits, quick lookups, and
+   straightforward questions don't need plan-file overhead.
+
+## Why this rule exists
+
+Cursor's `beforeSubmitPrompt` hook cannot inject context (only Claude Code's
+`UserPromptSubmit` can); a `sessionStart` hook
+(`.cursor/hooks/session_start.py`) surfaces `task_plan.md` + recent
+`progress.md` once per new conversation, and a `postToolUse` hook
+(`.cursor/hooks/post_edit_reminder.py`) reminds to update `progress.md`
+after file edits. This always-applied rule is the per-message fallback that
+keeps the workflow in view between those two hook firings.

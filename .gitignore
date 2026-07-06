@@ -28,10 +28,13 @@ dist/
 *_TMP.csv
 _tmp_*.py
 _tmp_*.log
+_scratch/wheels/
+_scratch/*.log
 
 # Raw dataset downloads (large; products are committed, raw is not)
 data/junyi/_raw/
 data/XES3G5M/
+data/XES3G5M.tar.gz
 
 # Experiment outputs (uncomment if you do NOT want results in git)
 # GNCDM/result/

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "python .cursor/hooks/session_start.py" }
+    ],
+    "postToolUse": [
+      { "command": "python .cursor/hooks/post_edit_reminder.py" }
+    ]
+  }
+}

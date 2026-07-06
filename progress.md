@@ -133,3 +133,21 @@
 - 用户自行整理论文表：`main_table_*` → 去 "main_" 改名 `docs/table_{a0910_user,math1_random}_split.md`（math1 表移进 docs/ 与 a0910 并列）。
 - 收尾清理（用户确认）：① 删 `incremental_results_math1_random_split.csv`（冗余，六策略已在 `all_methods_math1_random_split.csv`）；② 清除 `haha`/`hello` 杂项出版本控制；③ `CLoRA_vs_Ours_LoRA.md` 结果引用改精确文件名。
 - **当前状态**：未提交（建议下一步统一 commit + push v2）。
+
+## 2026-07-03 — 会话：Cursor 端搭建 planning-with-files 自动化（hooks + rule）
+- 背景：`planning-with-files` skill 之前只在 Claude Code 里启用（`~/.claude/settings.json` 加 `planning-with-files@planning-with-files: true`），但 Claude Code 的 `UserPromptSubmit`/`PostToolUse` hook 机制和 Cursor 自己的 hooks 系统不兼容，Cursor 里不会自动生效。
+- 查阅 Cursor 官方 hooks 文档确认关键限制：`beforeSubmitPrompt`（对应 Claude Code 的 `UserPromptSubmit`）**只支持 `continue`/`user_message`，不支持 `additional_context`**——即 Cursor 目前架构上就不允许「每条消息发送前重新注入文件内容」，只有 `sessionStart`（新会话开始）和 `postToolUse`（工具调用后）两个事件支持 `additional_context`。
+- 落地三个项目级文件（已提交进 repo，跟 git 走，团队成员打开即生效）：
+  - `.cursor/hooks.json` + `.cursor/hooks/session_start.py`：新对话开始时读 `task_plan.md` 前 60 行 + `progress.md` 最近 20 行，注入为 `additional_context`。
+  - `.cursor/hooks/post_edit_reminder.py`：每次 Write/Edit 类工具调用后，若 `task_plan.md` 存在，注入一句提醒「更新 progress.md，阶段完成同步 task_plan.md」。
+  - `.cursor/rules/planning-with-files.mdc`（`alwaysApply: true`）：补偿 `beforeSubmitPrompt` 不能逐条注入的缺口，把方法论要点（读时机/写时机/3 次重试升级协议/何时可跳过）作为常驻规则挂到每条消息上下文里。
+- 三个脚本都做了防崩溃处理（stdin 非法 JSON、workspace_roots 缺失、目标文件不存在均安全返回 `{}`），本机用手工构造的 stdin JSON 测过全部分支，`py_compile` 通过。
+- **关键澄清（用户追问引出）**：hooks 系统只能读文件 + 注入固定/半固定提示文本，**没有能力自动生成语义内容写入 findings.md/progress.md**——hook 脚本拿不到对话正文，只有 tool 调用的输入输出。真正的「持续更新」仍然要靠我（agent）在对话中自己判断"这是不是该记录的发现/进展"，然后主动执行一次 Write/编辑操作；`postToolUse` 提醒只是不让我忘记，不是自动化写入。本条目就是这次澄清后手动补写的示范。
+- **当前状态**：未提交（`.cursor/` 三个文件属于新增未追踪文件）。
+
+## 2026-07-05 — 会话：补跑 ICD on junyi_random_split 并入总表
+- 检查发现 `all_methods_junyi_random_split.csv` 缺 ICD 一行（math1/a0910 的 random_split 总表都已有）；`GNCDM/experiments/run_icd_junyi_A.py` 脚本本身早已就绪（与 math1/a0910 版本同结构），只是没在本机跑过。
+- 确认本机已有 junyi 数据（`d:\CD_continue\data\junyi\{Q_matrix.npy,new_random_split/*}`，注意是仓库根目录下的 `data/`，不是 `GNCDM/data/`）和现成的 `_scratch/icd-venv`（torch 2.9.1 cpu + EduCDM，此前为 math1/a0910 装的独立环境），显式传入 `DATA_DIR` 后本机 CPU 直接跑通，耗时约 10 分钟。
+- 官方超参与口径同 math1/a0910（`cdm=ncd, alpha=0.2, tolerance=0.2, beta=0.9, epoch=1, warmup_ratio=0.1`；strict_bipartition 34% 新概念 old=455/new=257 题、old=15 概念）。
+- **结果**：`AUC_old=0.7659 AUC_new=0.7457 ACC_old=0.7270 ACC_new=0.6257 F1_old=0.7994 F1_new=0.7697 RD(TMD)=1.4328`（原始行落 `GNCDM/experiments/icd_out_junyi/icd_row_junyi_random_split.csv`），已追加进 `all_methods_junyi_random_split.csv` 末行。整体强度介于 Base 与其余持续学习基线之间，无异常退化（new-test 预测 std 偏小属 ICD 对新题冷启动的已知特征，非 bug）。
+- **当前状态**：未提交。

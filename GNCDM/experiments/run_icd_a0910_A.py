@@ -36,7 +36,19 @@ CTX = sys.argv[2] if len(sys.argv) > 2 else ("cuda:0" if torch.cuda.is_available
 STREAM_PER_STAGE = int(sys.argv[3]) if len(sys.argv) > 3 else 25
 
 NEW_ITEM_FRAC = 0.34
-ALPHA, TOLERANCE, BETA, WARMUP, EPOCH = 0.2, 0.2, 0.9, 0.1, 1  # official ICD main() defaults
+# alpha/tolerance/beta/epoch: EduCDM examples/ICD/ICD.py main() defaults.
+# warmup_ratio=0 (not the generic 0.1): bigdata-ustc/ICD's own a0910 example command is
+# `pure_stream_inc_run.py --dataset a0910 --cdm ncd --alpha 0.2 --beta 0.9 --tolerance 0.2
+#  --inner_metrics True --warmup_ratio 0`; 0.1 is borrowed from a different ("math") example
+# dataset's generic main() defaults and produced miscalibrated old-test predictions on a0910
+# (AUC_old > 0.5 but ACC_old < 0.5 -> thresholded-at-0.5 outputs shifted, not "no signal").
+# epoch=1 (official default; DO NOT bump). Tried epoch=3: old-test AUC/ACC improved
+# (0.60->0.63 / 0.54->0.60) but new-test AUC collapsed near-random (0.6675->0.5549) because
+# `epoch` re-trains for N passes on EVERY stream chunk inside ICD.train(), not "overall" -
+# it distorts turning_point()/momentum_weight_update() dynamics across the old->new stage
+# boundary, overfitting stage-1 chunks at the cost of stage-2 (new-item) generalization.
+# Net effect is a regression, not a fix -> reverted to 1.
+ALPHA, TOLERANCE, BETA, WARMUP, EPOCH = 0.2, 0.2, 0.9, 0.0, 1
 MAX_U2I, MAX_I2U = 128, 64  # official a0910 caps (large item/user count)
 EVAL_BS = 256
 
@@ -169,6 +181,10 @@ u2i_old = user2items(old_tr)
 
 
 def old_user_traits(_net):
+    # EduCDM's get_net() auto-wraps in nn.DataParallel when >1 GPU is visible; DataParallel
+    # only proxies forward/__call__, so custom methods need the same unwrap ICD.py uses
+    # internally (`_net.module if isinstance(_net, torch.nn.DataParallel) else _net`).
+    _net = _net.module if isinstance(_net, torch.nn.DataParallel) else _net
     out = _net.get_user_profiles(dict_etl(old_users, u2i_old, batch_size=EVAL_BS))
     return out["u_trait"].detach().cpu().numpy()
 
@@ -230,6 +246,10 @@ def eval_subset(df_subset):
             yt.extend(r.tolist())
     yt, yp = np.array(yt), np.array(yp)
     yl = (yp >= 0.5).astype(int)
+    print(
+        f"    [diag] n={len(yt)} pos_rate(true)={yt.mean():.4f} "
+        f"pred: mean={yp.mean():.4f} std={yp.std():.4f} min={yp.min():.4f} max={yp.max():.4f}"
+    )
     auc = roc_auc_score(yt, yp) if len(set(yt.tolist())) > 1 else float("nan")
     return auc, mean_squared_error(yt, yp) ** 0.5, accuracy_score(yt, yl), f1_score(yt, yl), len(yt)
 
