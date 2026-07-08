@@ -4,7 +4,7 @@
 验证「新概念占比越大 → 最优 alpha 越小」假设：a0910 random 现用 alpha=0.9 但
 **从未真扫过**（仅对齐原作者）。本脚本与 sweep_junyi/math1 同口径：buf 预测、
 每个 alpha 训 Base + Ours(Dynamic DNA) + Ours(LoRA)，**在 valid 上按 DNA
-mean(valid AUC_old, AUC_new) 选 alpha、test 上报数**（不只挑 test）。
+mean(valid ACC_old, ACC_new) 选 alpha、test 上报数**（不只挑 test）。
 只用 G-NCDM，不需要 avalanche。
 
 ⚠️ a0910 题量大(17746 题、4163 用户、123 概念)，10 个 alpha × (Base+DNA+LoRA)
@@ -182,11 +182,11 @@ def main():
             R.evaluate_buf(lora, c["test_new"], device),
         )
 
-        sel = 0.5 * (b_va["auc"] + dna_v_new["auc"])  # 选择标准：DNA mean(valid AUC_old, AUC_new)
+        sel = 0.5 * (b_va["acc"] + dna_v_new["acc"])  # 选择标准：DNA mean(valid ACC_old, ACC_new)
         rows.append(
             {
                 "alpha": a,
-                "sel_DNA_validAUC": round(sel, 4),
+                "sel_DNA_validACC": round(sel, 4),
                 "Base_te_AUCold": b_te["auc"],
                 "Base_te_ACCold": b_te["acc"],
                 "DNA_te_AUCnew": dna_t_new["auc"],
@@ -208,12 +208,12 @@ def main():
     df = pd.DataFrame(rows)
     out = os.path.join(R.SAVE_DIR, "alpha_sweep_a0910_random_split.csv")
     df.to_csv(out, index=False)
-    best = df.sort_values("sel_DNA_validAUC", ascending=False).iloc[0]
+    best = df.sort_values("sel_DNA_validACC", ascending=False).iloc[0]
     print("\n=== 全表（按 alpha）===")
     print(df.to_string(index=False))
     print(
-        f"\n>>> 选择标准 DNA mean(valid AUC_old,AUC_new) 最优 alpha = {best['alpha']:.2f} "
-        f"(selAUC={best['sel_DNA_validAUC']:.4f})"
+        f"\n>>> 选择标准 DNA mean(valid ACC_old,ACC_new) 最优 alpha = {best['alpha']:.2f} "
+        f"(selACC={best['sel_DNA_validACC']:.4f})"
     )
     print(
         f">>> 该 alpha 下 test：Base AUCold={best['Base_te_AUCold']:.4f} ACCold={best['Base_te_ACCold']:.4f} | "
