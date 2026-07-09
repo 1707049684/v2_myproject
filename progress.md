@@ -197,3 +197,29 @@
 - 改动：`plot_epoch_curve_final_math1.py` 去掉 ICD（STYLE/ORDER/CSV 合并全部移除），改回 7 模型；docstring 开头加一段"为什么不画 ICD"的说明；图上用 `fig.text` 加一行小字脚注（"ICD not shown: single-pass streaming method..."），并调整 `figsize`/`tight_layout(rect=...)` 给这行脚注留出空间避免跟 x 轴标题重叠。`GNCDM/plot/README.md` 同步更新说明。
 - `experiments/run_icd_math1_curve.py` 脚本和它产出的 `epoch_curve_icd_math1_random_split.csv` **保留不删**，作为旁证/以防论文其它地方要用，但不再接入图A的合并流程。
 - **当前状态**：改动未提交。
+
+### 追加：用户要 ACC_old 版效率曲线（math1 random，7 模型不变）
+- 改 `plot_epoch_curve_gncdm_math1.py` / `plot_epoch_curve_avalanche_math1.py`：每 epoch 同时记录 `ACC_old`+`ACC_new`（GNCDM 家族用 valid_old/valid_new；C-LoRA-GNCDM 用 test_old/test_new；选优逻辑不变）。
+- 新增 `plot_epoch_curve_final_math1_old.py`，读同一批 CSV 画纵轴 ACC_old 的图。
+- 本机重跑两条数据脚本（gncdm ~2.6min，avalanche ~1.3min），产出 `epoch_curve_math1_random_split_final_old.{csv,png}`。
+- 图上观察：CLEAN-LoRA 的 ACC_old 全程平线（≈0.736，架构隔离零遗忘）；CLEAN-Full 在 valid_old 上随 epoch 下滑（新分支训练影响 encoder 推断旧题 θ，但官方 test 上 best checkpoint 仍等于 Base 0.729）；Full-Replay/EWC/DER++/X-DER 各有不同程度的旧任务漂移。
+- **当前状态**：改动未提交。
+
+### 追加：用户追问 CLEAN-Full ACC_old 为何漂移（应与 CLEAN-LoRA 一致）→ 脚本 bug 已修
+- **根因**：`plot_epoch_curve_gncdm_math1.py` 的 CLEAN-Full 漏了官方 `run_incremental_math1.py` Ours(DNA) 的 `mask_agg_old=True` 梯度 hook。DNA 训练 `theta_agg_mat/psi_agg_mat.weight` 整张量；math1 新题 Q_old≠0，旧聚合列收到梯度被更新 → ACC_old 下滑。LoRA 只训 A_/B_、不训聚合层整张 weight，旧列天然冻结。
+- **修复**：CLEAN-Full 加 `mask_agg_old=True` + `register_hook` 清零 `[:, :K_old]`（与官方 `run_strategy` 一致）；同步修 `plot_epoch_curve_math1.py`。
+- **验证**：重跑后 CLEAN-Full ACC_old 全程恒 0.7364，与 CLEAN-LoRA 重合。
+- **当前状态**：改动未提交。
+
+### 追加：统一效率曲线横轴到 epoch 15
+- **原因**：C-LoRA-GNCDM 曲线数据跑满 25 ep、DER++ 早停约 6 ep，终版图横轴不一致（有的到 25、有的只到 6）。
+- **修复**：`plot_epoch_curve_final_math1.py` / `_old.py` 设 `MAX_EPOCH=15`、`plt.xlim(1,15)`、合并时 `epoch<=15`；`plot_epoch_curve_gncdm_math1.py` 给 `run_one_lambda(..., n_epoch=15)`；`plot_epoch_curve_avalanche_math1.py` 曲线专用 `CURVE_MAX_EPOCH=15`、DER++ 关闭早停固定跑满 15 ep（仅曲线脚本，不改 `cl_baselines_random_split.py` 主实验）。
+- **验证**：`epoch_curve_math1_random_split_final.csv` 7 模型均为 epoch 1–15 各 15 点；终版 PNG 已重生成。
+- **当前状态**：改动未提交。
+
+### 追加：25 轮曲线版（保留 15 轮）
+- 用户要看 25 轮效果，且**不删** 15 轮结果。
+- 15 轮产物已备份为 `*_ep15.{csv,png}`（含 gncdm/avalanche 中间表）。
+- 脚本加 `--epochs`（默认 25），输出带后缀 `ep{N}`；重跑 ep25 数据 + 终版图。
+- **产物**：`epoch_curve_math1_random_split_final_ep25.{csv,png}`、`epoch_curve_math1_random_split_final_old_ep25.{csv,png}`；15 轮版仍在 `*_ep15.*`。
+- **当前状态**：改动未提交。

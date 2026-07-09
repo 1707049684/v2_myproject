@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""图 A（Avalanche 骨干部分）：EWC / DER++ 在 math1 random_split 上的 ACC_new-epoch 收敛曲线。
+"""图 A（Avalanche 骨干部分）：EWC / DER++ 在 math1 random_split 上的 ACC_new/ACC_old-epoch 收敛曲线。
 
 必须用装了 avalanche-lib 的解释器跑（本机在 d:\\CD_continue\\_scratch\\clbase-venv）：
     d:\\CD_continue\\_scratch\\clbase-venv\\Scripts\\python.exe plot_epoch_curve_avalanche_math1.py
@@ -14,10 +14,11 @@
 lambda/mem_size 取官方 all_methods_math1_random_split.csv 里已选定的值（EWC lambda=1000，
 DER++ mem=5000），只跑这一组，不做完整 sweep。
 
-产物：incremental_result/epoch_curve_avalanche_math1_random_split.csv
-运行：cd GNCDM/plot && python plot_epoch_curve_avalanche_math1.py
+产物：incremental_result/epoch_curve_avalanche_math1_random_split_ep{N}.csv
+运行：cd GNCDM/plot && python plot_epoch_curve_avalanche_math1.py [--epochs 25]
 """
 
+import argparse
 import os
 import sys
 
@@ -39,7 +40,7 @@ EWC_LAMBDA = 1000  # 官方 all_methods_math1_random_split.csv 里 "EWC (lambda=
 SAVE_DIR = CB.SAVE_DIR
 
 
-def ewc_curve(meta, device):
+def ewc_curve(meta, device, curve_max_epoch):
     from avalanche.training.supervised import EWC
     from avalanche.core import SupervisedPlugin
 
@@ -54,8 +55,9 @@ def ewc_curve(meta, device):
             if strategy.experience.current_experience != 1:  # 只记 Task1=新题
                 return
             self.epoch_ctr += 1
-            _, _, acc, _ = CB.evaluate_cd_metrics(strategy.model, meta["valid_new_ds"], device)
-            history.append({"epoch": self.epoch_ctr, "acc": acc})
+            _, _, acc_old, _ = CB.evaluate_cd_metrics(strategy.model, meta["valid_old_ds"], device)
+            _, _, acc_new, _ = CB.evaluate_cd_metrics(strategy.model, meta["valid_new_ds"], device)
+            history.append({"epoch": self.epoch_ctr, "acc": acc_new, "acc_old": acc_old})
 
     CB.set_seed(42)
     model = CB.CognitiveBackbone(meta["num_students"], meta["num_items"], CB.EMBED_DIM).to(device)
@@ -66,7 +68,7 @@ def ewc_curve(meta, device):
         ewc_lambda=EWC_LAMBDA,
         mode=CB.EWC_MODE,
         train_mb_size=CB.TRAIN_MB_SIZE,
-        train_epochs=CB.EWC_EPOCHS,
+        train_epochs=curve_max_epoch,
         eval_mb_size=256,
         device=device,
         plugins=[NewTaskAccPlugin()],
@@ -74,11 +76,16 @@ def ewc_curve(meta, device):
     for exp in CB._bench(meta).train_stream:
         strat.train(exp)
     old_m, new_m = CB._eval_both(model, meta, device)
-    print(f"[EWC] 末轮(valid_new) ACC={history[-1]['acc']:.4f} | 本次 test ACC_new={new_m[2]:.4f}")
-    return [{"Model": "EWC", "epoch": h["epoch"], "ACC_new": h["acc"]} for h in history]
+    print(
+        f"[EWC] 末轮 valid_new ACC={history[-1]['acc']:.4f} "
+        f"valid_old ACC={history[-1]['acc_old']:.4f} | 本次 test ACC_new={new_m[2]:.4f}"
+    )
+    return [
+        {"Model": "EWC", "epoch": h["epoch"], "ACC_new": h["acc"], "ACC_old": h["acc_old"]} for h in history
+    ]
 
 
-def der_curve(meta, device):
+def der_curve(meta, device, curve_max_epoch):
     from avalanche.training.supervised import DER
 
     history = []
@@ -103,32 +110,41 @@ def der_curve(meta, device):
             if tid == 0
             else CB.ConcatDataset([meta["valid_old_ds"], meta["valid_new_ds"]])
         )
-        best_acc, best_state, wait = -1.0, None, 0
+        best_acc, best_state = -1.0, None
         ep = 0
-        for _ in range(CB.TRAIN_EPOCHS):
+        max_ep = curve_max_epoch if tid == 1 else CB.TRAIN_EPOCHS
+        for _ in range(max_ep):
             strat.train(exp)
             _, _, val_acc, _ = CB.evaluate_cd_metrics(model, val_ds, device)
             if tid == 1:
                 ep += 1
+                _, _, acc_old, _ = CB.evaluate_cd_metrics(model, meta["valid_old_ds"], device)
                 _, _, acc_new, _ = CB.evaluate_cd_metrics(model, meta["valid_new_ds"], device)
-                history.append({"epoch": ep, "acc": acc_new})
+                history.append({"epoch": ep, "acc": acc_new, "acc_old": acc_old})
             if val_acc > best_acc:
-                best_acc, wait = val_acc, 0
+                best_acc = val_acc
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            else:
-                wait += 1
-            if wait >= CB.EARLY_STOP_PATIENCE:
-                break
         if best_state is not None:
             model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
     old_m, new_m = CB._eval_both(model, meta, device)
-    print(f"[DER++] 末轮(valid_new, 早停前) ACC={history[-1]['acc']:.4f} | 本次 test(早停后) ACC_new={new_m[2]:.4f}")
-    return [{"Model": "DER++", "epoch": h["epoch"], "ACC_new": h["acc"]} for h in history]
+    print(
+        f"[DER++] 末轮 valid_new ACC={history[-1]['acc']:.4f} "
+        f"valid_old ACC={history[-1]['acc_old']:.4f} | 本次 test ACC_new={new_m[2]:.4f}"
+    )
+    return [
+        {"Model": "DER++", "epoch": h["epoch"], "ACC_new": h["acc"], "ACC_old": h["acc_old"]}
+        for h in history
+    ]
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--epochs", type=int, default=25, help="Task2 训练轮数（默认 25）")
+    args = parser.parse_args()
+    curve_max_epoch = args.epochs
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device = {device}")
+    print(f"device = {device} | epochs = {curve_max_epoch}")
     cfg = {
         "name": "math1",
         "train": os.path.join(CB.DATA_DIR, "math1_train_0.8_0.2.csv"),
@@ -141,11 +157,11 @@ def main():
     }
     meta = CB.load_random(cfg)
 
-    rows = ewc_curve(meta, device)
-    rows += der_curve(meta, device)
+    rows = ewc_curve(meta, device, curve_max_epoch)
+    rows += der_curve(meta, device, curve_max_epoch)
 
     df = pd.DataFrame(rows)
-    out = os.path.join(SAVE_DIR, "epoch_curve_avalanche_math1_random_split.csv")
+    out = os.path.join(SAVE_DIR, f"epoch_curve_avalanche_math1_random_split_ep{curve_max_epoch}.csv")
     df.to_csv(out, index=False)
     print(f"写入 {out}")
 

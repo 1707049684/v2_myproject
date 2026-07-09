@@ -247,6 +247,121 @@ def lora_params(model):
     return [p for n, p in model.named_parameters() if n.startswith("A_") or n.startswith("B_")]
 
 
+def buf_strategy_specs(
+    n_item_new, n_know_new, n_item_old, Q_expanded, train_old, train_new, valid_old, valid_new
+):
+    """buf 模式 random_split 的 5 条增量策略配方（主实验 + 曲线脚本共用，单点维护）。"""
+    rank = min(16, n_know_new)
+    exp = lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded)
+    freplay = lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded)
+    return {
+        "Ours-Ablated": dict(
+            expand_fn=exp,
+            params_fn=lambda m: list(m.parameters()),
+            train_df=train_new,
+            valid_df=valid_new,
+        ),
+        "Ours (Dynamic DNA)": dict(
+            expand_fn=exp,
+            params_fn=lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
+            train_df=train_new,
+            valid_df=valid_new,
+            mask_agg_old=True,
+        ),
+        "Ours (LoRA)": dict(
+            expand_fn=lambda m: m.expand_topology_lora(
+                delta_M=n_item_new,
+                delta_K=n_know_new,
+                Q_expanded=Q_expanded,
+                M_old=n_item_old,
+                rank=rank,
+            ),
+            params_fn=lora_params,
+            train_df=train_new,
+            valid_df=valid_new,
+        ),
+        "Full Replay Oracle": dict(
+            expand_fn=freplay,
+            params_fn=lambda m: list(m.parameters()),
+            train_df=pd.concat([train_old, train_new], ignore_index=True),
+            valid_df=pd.concat([valid_old, valid_new], ignore_index=True),
+        ),
+        "Naive FT (NFT)": dict(
+            expand_fn=freplay,
+            params_fn=lambda m: list(m.parameters()),
+            train_df=train_new,
+            valid_df=valid_new,
+        ),
+    }
+
+
+def run_strategy(
+    base,
+    name,
+    expand_fn,
+    params_fn,
+    train_df,
+    valid_df,
+    *,
+    log_full,
+    n_know_old,
+    device,
+    strat_eval_fn,
+    final_old,
+    final_new,
+    base_theta_old=None,
+    record_fn=None,
+    n_epoch=15,
+    mask_agg_old=False,
+    history=None,
+    curve_eval_fn=None,
+    select_metric="acc",
+    run_strategies=None,
+):
+    """跑一条增量策略。curve_eval_fn 给定则用于 train_real（画曲线时同时记 old/new）；否则 strat_eval_fn(valid_df)。"""
+    if run_strategies is not None and name not in run_strategies:
+        return None
+    m = fresh_base(base)
+    expand_fn(m)
+    populate_buffers(m, log_full, device)
+
+    handles = []
+    if mask_agg_old:
+
+        def make_col_mask(k_old):
+            def hook(grad):
+                g = grad.clone()
+                g[:, :k_old] = 0.0
+                return g
+
+            return hook
+
+        handles.append(m.theta_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
+        handles.append(m.psi_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
+
+    eval_fn = curve_eval_fn if curve_eval_fn is not None else strat_eval_fn(valid_df)
+    train_real(
+        m,
+        train_df,
+        log_full,
+        params_fn(m),
+        device,
+        n_epoch=n_epoch,
+        desc=name,
+        eval_fn=eval_fn,
+        select_metric=select_metric,
+        history=history,
+    )
+    for h in handles:
+        h.remove()
+
+    populate_buffers(m, log_full, device)
+    if record_fn is not None and base_theta_old is not None:
+        tmd = calculate_rd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
+        record_fn(name, final_old(m), final_new(m), tmd)
+    return m
+
+
 def fresh_base(base_model):
     """从已训练 base 克隆一个新模型，避免策略间互相污染。"""
     m = GNCDM(
@@ -418,122 +533,37 @@ def run_experiment(
     base_theta_old = base.get_Theta_buf().clone()
     record("Base", base_final(), None, None)
 
-    def run_strategy(
-        name, expand_fn, params_fn, train_df, valid_df, n_epoch=15, mask_agg_old=False
-    ):
-        # 省算力开关：run_strategies 指定子集时，跳过未请求的非 Base 策略（默认 None=全跑）
-        if run_strategies is not None and name not in run_strategies:
-            return None
-        m = fresh_base(base)
-        expand_fn(m)
-        populate_buffers(m, log_full, device)
-
-        handles = []
-        if mask_agg_old:
-
-            def make_col_mask(k_old):
-                def hook(grad):
-                    g = grad.clone()
-                    g[:, :k_old] = 0.0
-                    return g
-
-                return hook
-
-            handles.append(m.theta_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
-            handles.append(m.psi_agg_mat.weight.register_hook(make_col_mask(n_know_old)))
-
-        train_real(
-            m,
-            train_df,
-            log_full,
-            params_fn(m),
-            device,
-            n_epoch=n_epoch,
-            desc=name,
-            eval_fn=strat_eval_fn(valid_df),
-            select_metric=strategy_select_metric,
-        )
-        for h in handles:
-            h.remove()
-
-        populate_buffers(m, log_full, device)  # RD 参照（+ buf 模式下供最终评测）
-        # NOTE: RD 只量潜在能力向量 θ 的旧维漂移（calculate_rd 仅看 theta[:, :K_old]），
-        # 量不到解码/读出通路（重建后的 theta_agg_mat/psi_agg_mat 的旧列权重与共享 bias）的漂移。
-        # θ_old 由旧编码器 f_nn 产生，而 expand_topology 第一步 _freeze_parameters() 已把 f_nn
-        # 置 requires_grad=False；即使 Ours-Ablated 传 list(m.parameters())，f_nn 也拿不到梯度、
-        # 不更新 → θ_old 恒等 base → RD 在 DNA 与 Ablated 上都精确为 0（与 Q 无关）。
-        # 但 Ablated 训练了重建后的聚合矩阵旧列权重 + 共享 bias：本数据集新题 Q_old≠0（每道新题
-        # 都碰旧概念），二者都有真实梯度、会漂移，使旧任务真退化 → 体现在 AUC_old
-        # （Base 0.8072 → Ablated 0.7381）而非 RD。判断 Ablated 是否遗忘看 AUC_old，勿被 RD=0 误导。
-        tmd = calculate_rd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
-        record(name, final_old(m), final_new(m), tmd)
-        return m
+    specs = buf_strategy_specs(
+        n_item_new, n_know_new, n_item_old, Q_expanded, train_old, train_new, valid_old, valid_new
+    )
+    rs_kw = dict(
+        log_full=log_full,
+        n_know_old=n_know_old,
+        device=device,
+        strat_eval_fn=strat_eval_fn,
+        final_old=final_old,
+        final_new=final_new,
+        base_theta_old=base_theta_old,
+        record_fn=record,
+        n_epoch=15,
+        select_metric=strategy_select_metric,
+        run_strategies=run_strategies,
+    )
 
     print("\n=== 2. Ours-Ablated ===")
-    run_strategy(
-        "Ours-Ablated",
-        lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: list(m.parameters()),
-        train_new,
-        valid_new,
-    )
+    run_strategy(base, "Ours-Ablated", **specs["Ours-Ablated"], **rs_kw)
 
     print("\n=== 3. Ours (Dynamic DNA) ===")
-    # 与 Ours-Ablated 模型定义完全相同（同一个 expand_topology，旧编码器 f_nn 均被
-    # _freeze_parameters() 冻结）；差别全在训练时的两道隔离。注意本数据集新题 Q_old≠0
-    # （每道新题都碰旧概念），故聚合矩阵旧列权重与共享 bias 都会收到真实梯度——两道都起作用、缺一不可：
-    #   - 可训练参数集合：只放 theta_agg_mat/psi_agg_mat 的 .weight，刻意排除其 .bias。
-    #     该 bias 新旧任务共享（predict_response 里旧/新题都无条件相加），训它必被新任务带偏。
-    #   - mask_agg_old=True（⊥-mask/OCM）：把重建后聚合矩阵旧概念列 [:, :K_old] 的梯度清零。
-    # 两道合起来令旧任务 bit-identical（AUC_old=Base）。Ours-Ablated 用 list(m.parameters())
-    # 无差别训练重建后聚合矩阵的全列+bias（无 mask）→ 旧列权重与 bias 双双漂移 → AUC_old 下降。
-    # f_nn 两者都冻结，故 θ/RD 不受影响，详见上方 RD NOTE。
-    run_strategy(
-        "Ours (Dynamic DNA)",
-        lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
-        train_new,
-        valid_new,
-        mask_agg_old=True,
-    )
+    run_strategy(base, "Ours (Dynamic DNA)", **specs["Ours (Dynamic DNA)"], **rs_kw)
 
     print("\n=== 4. Ours (LoRA) ===")
-    # rank=min(16, n_know_new): LoRA's A(dim,rank)@B(rank,delta_K) product has rank <= delta_K
-    # regardless of `rank`, so rank > delta_K is pure redundant capacity that only slows
-    # convergence within the shared 15-epoch budget. math1's delta_K=4 << the project-wide 16
-    # (sized for a0910/junyi's much larger delta_K) was tanking AUC_new (0.67 vs DNA's 0.72);
-    # capping it here for math1 only, other datasets' scripts are untouched.
-    run_strategy(
-        "Ours (LoRA)",
-        lambda m: m.expand_topology_lora(
-            delta_M=n_item_new,
-            delta_K=n_know_new,
-            Q_expanded=Q_expanded,
-            M_old=n_item_old,
-            rank=min(16, n_know_new),
-        ),
-        lora_params,
-        train_new,
-        valid_new,
-    )
+    run_strategy(base, "Ours (LoRA)", **specs["Ours (LoRA)"], **rs_kw)
 
     print("\n=== 5. Full Replay Oracle ===")
-    run_strategy(
-        "Full Replay Oracle",
-        lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: list(m.parameters()),
-        pd.concat([train_old, train_new], ignore_index=True),
-        pd.concat([valid_old, valid_new], ignore_index=True),
-    )
+    run_strategy(base, "Full Replay Oracle", **specs["Full Replay Oracle"], **rs_kw)
 
     print("\n=== 6. Naive FT (NFT) ===")
-    run_strategy(
-        "Naive FT (NFT)",
-        lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: list(m.parameters()),
-        train_new,
-        valid_new,
-    )
+    run_strategy(base, "Naive FT (NFT)", **specs["Naive FT (NFT)"], **rs_kw)
 
     out = os.path.join(SAVE_DIR, f"incremental_results_{split_name}.csv")
     pd.DataFrame(results).to_csv(out, index=False)

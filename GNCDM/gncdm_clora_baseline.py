@@ -47,6 +47,7 @@ from run_incremental_math1 import (  # noqa: E402
     SampleSet,
     build_log_mat,
     evaluate_buf,
+    evaluate_recon,
     populate_buffers,
     remap_items,
     set_seed,
@@ -310,6 +311,136 @@ def load_partition(cfg):
     }
 
 
+def _split_support_query(df, frac=0.5, seed=7):
+    sup = df.groupby("user_id", group_keys=False).sample(frac=frac, random_state=seed)
+    return sup, df.drop(sup.index)
+
+
+def load_partition_user_split(cfg):
+    """user_split：需 valid；评测走 support/query（与 eval_all_methods_user_split 同口径）。"""
+    df_train = pd.read_csv(cfg["train"])
+    df_valid = pd.read_csv(cfg["valid"])
+    df_test = pd.read_csv(cfg["test"])
+    Q_mat = np.load(cfg["Q"])
+    n_user, n_item, n_know = cfg["n_user"], cfg["n_item"], cfg["n_know"]
+
+    new_concepts = (
+        auto_new_concepts(Q_mat, NEW_ITEM_FRAC)
+        if cfg["new_concepts"] == "auto"
+        else list(cfg["new_concepts"])
+    )
+    Q_full, item_id_map, n_item_old, n_know_old = strict_bipartition(Q_mat, new_concepts)
+    df_train = remap_items(df_train, item_id_map)
+    df_valid = remap_items(df_valid, item_id_map)
+    df_test = remap_items(df_test, item_id_map)
+    assert Q_full[:n_item_old, n_know_old:].sum() == 0, "旧题依赖了新概念，二分失败！"
+    print(
+        f">>> [user_split] 新概念={len(new_concepts)}/{n_know}, 旧题={n_item_old} "
+        f"新题={n_item - n_item_old}, 旧概念={n_know_old}"
+    )
+
+    train_old = df_train[df_train["item_id"] < n_item_old].copy()
+    train_new = df_train[df_train["item_id"] >= n_item_old].copy()
+    sup_test, qry_test = _split_support_query(df_test)
+    qry_test_old = qry_test[qry_test["item_id"] < n_item_old].copy()
+    qry_test_new = qry_test[qry_test["item_id"] >= n_item_old].copy()
+    print(
+        f"  support/query test: support={len(sup_test)} "
+        f"query old={len(qry_test_old)} new={len(qry_test_new)}"
+    )
+    return {
+        "Q_full": Q_full,
+        "n_item_old": n_item_old,
+        "n_know_old": n_know_old,
+        "train_old": train_old,
+        "train_new": train_new,
+        "log_old_only": build_log_mat(train_old, n_user, n_item),
+        "log_full": build_log_mat(df_train, n_user, n_item),
+        "sup_test_full_log": build_log_mat(sup_test, n_user, n_item),
+        "qry_test_old": qry_test_old,
+        "qry_test_new": qry_test_new,
+    }
+
+
+def run_user_split(cfg, device, split_tag="user_split", lambda_sweep=None):
+    """G-NCDM+C-LoRA · user_split · λ 扫描 · support/query 评测。"""
+    sweep = LAMBDA_ORTHO_SWEEP if lambda_sweep is None else lambda_sweep
+    meta = load_partition_user_split(cfg)
+
+    set_seed(42)
+    base = _new_model(cfg, meta, device)
+    print(f"\n>>> Phase 1：Base（旧题，{BASE_EPOCHS} ep）...")
+    train_real(
+        base,
+        meta["train_old"],
+        meta["log_old_only"],
+        list(base.parameters()),
+        device,
+        n_epoch=BASE_EPOCHS,
+        desc="Base(US)",
+    )
+    populate_buffers(base, meta["log_old_only"], device)
+    base_theta_ref = base.get_Theta_buf().clone()
+    base_state = copy.deepcopy(base.state_dict())
+
+    rows = []
+    for lam in sweep:
+        print(f"\n========== ortho_lambda = {lam} ==========")
+        set_seed(42)
+        model = _new_model(cfg, meta, device)
+        model.load_state_dict(base_state)
+        n_know_old = meta["n_know_old"]
+        model._freeze_parameters()
+        inject_lora_gncdm(model, rank=LORA_RANK, alpha=LORA_ALPHA)
+        model.theta_agg_mat.weight.requires_grad = True
+        model.psi_agg_mat.weight.requires_grad = True
+        handles = [
+            model.theta_agg_mat.weight.register_hook(make_col_mask(n_know_old)),
+            model.psi_agg_mat.weight.register_hook(make_col_mask(n_know_old)),
+        ]
+        model.to(device)
+        params = lora_parameters(model) + [model.theta_agg_mat.weight, model.psi_agg_mat.weight]
+        train_clora_phase2(
+            model,
+            meta["train_new"],
+            meta["log_full"],
+            params,
+            device,
+            lambda_ortho=lam,
+            desc=f"λ={lam}",
+        )
+        for h in handles:
+            h.remove()
+        populate_buffers(model, meta["log_full"], device)
+        r_old = evaluate_recon(model, meta["qry_test_old"], meta["sup_test_full_log"], device)
+        r_new = evaluate_recon(model, meta["qry_test_new"], meta["sup_test_full_log"], device)
+        tmd = calculate_rd(
+            base_theta_ref[:, :n_know_old].to(device), model.get_Theta_buf().to(device), n_know_old
+        )
+        r = {
+            "ortho_lambda": lam,
+            "AUC_old": r_old["auc"],
+            "AUC_new": r_new["auc"],
+            "RMSE_old": r_old["rmse"],
+            "RMSE_new": r_new["rmse"],
+            "ACC_old": r_old["acc"],
+            "ACC_new": r_new["acc"],
+            "F1_old": r_old["f1"],
+            "F1_new": r_new["f1"],
+            "RD": tmd,
+        }
+        rows.append(r)
+        print(
+            f"  [λ={lam}] 旧: AUC={r['AUC_old']:.4f} ACC={r['ACC_old']:.4f} | "
+            f"新: AUC={r['AUC_new']:.4f} ACC={r['ACC_new']:.4f} | RD={r['RD']:.4f}"
+        )
+
+    out = os.path.join(SAVE_DIR, f"clora_gncdm_lambda_sweep_{cfg.get('name', 'ds')}_{split_tag}.csv")
+    pd.DataFrame(rows).to_csv(out, index=False)
+    print(f"\n写入 {out}")
+    return rows
+
+
 def _new_model(cfg, meta, device):
     return GNCDM(
         n_user=cfg["n_user"],
@@ -328,7 +459,15 @@ def _new_model(cfg, meta, device):
 # 单个 λ：恢复 Phase-1 基座 → 冻结 + 挂 LoRA + 解冻新概念聚合列 → 训 Task1 → 评测
 # ==========================================
 def run_one_lambda(
-    cfg, base_state, base_theta_ref, meta, lambda_ortho, device, history=None, history_eval_fn=None
+    cfg,
+    base_state,
+    base_theta_ref,
+    meta,
+    lambda_ortho,
+    device,
+    history=None,
+    history_eval_fn=None,
+    n_epoch=CLORA_EPOCHS,
 ):
     set_seed(42)
     model = _new_model(cfg, meta, device)
@@ -348,7 +487,7 @@ def run_one_lambda(
     params = lora_parameters(model) + [model.theta_agg_mat.weight, model.psi_agg_mat.weight]
     print(
         f"  -- λ_ortho={lambda_ortho}：冻结基座 + LoRA({n_wrapped} 层) + 新概念聚合列；"
-        f"可训张量={len(params)}（{CLORA_EPOCHS} ep）--"
+        f"可训张量={len(params)}（{n_epoch} ep）--"
     )
 
     train_clora_phase2(
@@ -358,6 +497,7 @@ def run_one_lambda(
         params,
         device,
         lambda_ortho=lambda_ortho,
+        n_epoch=n_epoch,
         desc=f"λ={lambda_ortho}",
         history=history,
         history_eval_fn=history_eval_fn,

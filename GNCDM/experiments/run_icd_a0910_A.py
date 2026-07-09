@@ -12,11 +12,12 @@ ENV (isolated venv; see GNCDM/docs/ICD_baseline_repro.md):
   EduCDM's groupby(['col']) pandas>=2.2 tuple-key bug at runtime, so NO source edit needed.
 
 Usage:
-  python run_icd_a0910_A.py [DATA_DIR] [CTX] [STREAM_PER_STAGE]
-    DATA_DIR         dir containing Q_matrix.npy and new_random_split/{train,valid,test}.csv
+  python run_icd_a0910_A.py [DATA_DIR] [CTX] [STREAM_PER_STAGE] [SPLIT_TAG]
+    DATA_DIR         dir containing Q_matrix.npy and new_{SPLIT_TAG}/{train,valid,test}.csv
                      (default: <repo>/data/a0910)
     CTX              'cuda:0' (default if available) or 'cpu'
     STREAM_PER_STAGE chunks per stage (default 25)
+    SPLIT_TAG        random_split (default) or user_split
 """
 
 import logging
@@ -34,6 +35,8 @@ _DEFAULT_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 DATA_DIR = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.abspath(_DEFAULT_DATA)
 CTX = sys.argv[2] if len(sys.argv) > 2 else ("cuda:0" if torch.cuda.is_available() else "cpu")
 STREAM_PER_STAGE = int(sys.argv[3]) if len(sys.argv) > 3 else 25
+SPLIT_TAG = sys.argv[4] if len(sys.argv) > 4 else "random_split"
+assert SPLIT_TAG in ("random_split", "user_split"), f"bad SPLIT_TAG={SPLIT_TAG}"
 
 NEW_ITEM_FRAC = 0.34
 # alpha/tolerance/beta/epoch: EduCDM examples/ICD/ICD.py main() defaults.
@@ -126,7 +129,7 @@ def remap_items(df, item_id_map):
 
 
 # ---- load + bipartition ----
-rnd = os.path.join(DATA_DIR, "new_random_split")
+rnd = os.path.join(DATA_DIR, f"new_{SPLIT_TAG}")
 Q = np.load(os.path.join(DATA_DIR, "Q_matrix.npy"))
 ITEM_N, KNOW_N = int(Q.shape[0]), int(Q.shape[1])
 tr = pd.read_csv(os.path.join(rnd, "train.csv"))
@@ -269,13 +272,13 @@ row = {
     "F1_new": f1_n,
     "RD": RD,
 }
-print(f"\n===== ICD (cdm=ncd) on {DATASET}_random_split — Approach A =====")
+print(f"\n===== ICD (cdm=ncd) on {DATASET}_{SPLIT_TAG} — Approach A =====")
 print(f"  old-test n={n_o}: AUC={auc_o:.4f} ACC={acc_o:.4f} F1={f1_o:.4f} RMSE={rmse_o:.4f}")
 print(f"  new-test n={n_n}: AUC={auc_n:.4f} ACC={acc_n:.4f} F1={f1_n:.4f} RMSE={rmse_n:.4f}")
-out_csv = os.path.join(OUT, f"icd_row_{DATASET}_random_split.csv")
+out_csv = os.path.join(OUT, f"icd_row_{DATASET}_{SPLIT_TAG}.csv")
 pd.DataFrame([row]).to_csv(out_csv, index=False)
 # ready-to-append line (TMD column = RD) for all_methods_{DATASET}_random_split.csv
-print("\nappend to all_methods_%s_random_split.csv (last col=TMD):" % DATASET)
+print("\nappend to all_methods_%s_%s.csv (last col=TMD):" % (DATASET, SPLIT_TAG))
 print(
     ",".join(
         str(row[k])
