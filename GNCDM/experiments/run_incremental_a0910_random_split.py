@@ -3,8 +3,8 @@
 
 test 用户与训练共享 → 预测口径。run_experiment(buf) 出 6 Ours →
 cl_baselines_random_split.run_one() 跑 3 基线直接预测并合并。ΔK 用 auto_new_concepts(0.34)。
-alpha 由 sweep_a0910_random_alpha.py 全扫 0.1~0.95、按 DNA mean(valid AUC) 选定
-（0.1 见顶 0.7579；原对齐论文的 0.9 从未真扫、已被超越）。
+alpha 由 sweep_a0910_random_alpha.py 全扫 0.1~0.95、按 DNA mean(valid ACC) 选定
+（0.1 见顶 sel_DNA_validACC=0.7292）。
 产物：incremental_result/all_methods_a0910_random_split.{csv,md}
 a0910 题量大(17746)，务必 GPU 服务器（需 avalanche）。
 """

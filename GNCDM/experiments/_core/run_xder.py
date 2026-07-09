@@ -137,9 +137,15 @@ def train_xder(
     lr=1e-3,
     batch_size=256,
     buf_batch=256,
+    history=None,
+    history_eval_fn=None,
 ):
     """Task2:L_BCE(new)+α·L_KD+β·L_BCE_buf+λ·L_Future,全参可训;每 epoch 末 memory revision。
-    按 combined valid acc 选最优快照。"""
+    按 combined valid acc 选最优快照。
+
+    history/history_eval_fn：可选，画收敛曲线用。给定则每 epoch 额外调
+    history_eval_fn(model)（不给则退化用 vr，即 combined valid）记录一条，不影响 best_state 选优。
+    """
     loader = DataLoader(SampleSet(train_new), batch_size=batch_size, shuffle=True)
     log_t = torch.tensor(log_full, dtype=torch.float32, device=device)
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=lr)
@@ -192,6 +198,9 @@ def train_xder(
         if vm > best_metric:
             best_metric = vm
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        if history is not None:
+            hr = history_eval_fn(model) if history_eval_fn is not None else vr
+            history.append({"epoch": epoch + 1, **hr})
         nb = len(loader)
         print(
             f"    [X-DER] epoch {epoch + 1}/{n_epoch} loss={tot / nb:.4f} "
@@ -225,8 +234,13 @@ def run_xder(
     lr=1e-3,
     batch_size=256,
     buf_batch=256,
+    history=None,
+    history_eval_fn=None,
 ):
-    """在一个数据集的 random_split 上跑 X-DER,产出单行结果(列与 all_methods 一致)。"""
+    """在一个数据集的 random_split 上跑 X-DER,产出单行结果(列与 all_methods 一致)。
+
+    history/history_eval_fn：透传给 train_xder，画收敛曲线用，不影响原有训练/选优行为。
+    """
     print(f"\n{'#' * 70}\n# X-DER  {split_name}  (G-NCDM 骨干, mode=buf)\n{'#' * 70}")
     set_seed(42)
 
@@ -319,6 +333,8 @@ def run_xder(
         lr=lr,
         batch_size=batch_size,
         buf_batch=buf_batch,
+        history=history,
+        history_eval_fn=history_eval_fn,
     )
 
     # ---- 评测(buf 无泄漏, 逐行对齐 Ours) + RD ----

@@ -1082,3 +1082,7 @@ LoRA 对新概念的编码器与读出均为 **rank=16 瓶颈**（W_new=A@B；�
 | C-LoRA | `core.model.GNCDM`（生成式骨干） | 否（归纳式） | `gncdm_clora_baseline.py:42,270` |
 | X-DER | `core.model.GNCDM`（生成式骨干） | 否（归纳式） | `run_xder.py:1-5,59` |
 | ICD | DTN 作答记录编码器（新学生归纳）；题目/知识维度预分配满编，未真正扩展 | 新学生：否；新题/知识：不适用 | `EduCDM/ICD/sym/net/net.py:18,37-49`；`run_icd_a0910_A.py:164-176` |
+
+## 目录约定：画图脚本放 GNCDM/plot/（2026-07-09）
+- `experiments/` 只保留增量主实验入口与 `_core/` 管线；`plot_*.py`、epoch 曲线、论文配图等可视化脚本统一迁至 `GNCDM/plot/`（见 `plot/README.md`）。
+- 画图脚本通过 `sys.path` 引用 `experiments/`、`experiments/_core/`、`GNCDM/`；产物 CSV/PNG 仍写 `incremental_result/`。

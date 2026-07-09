@@ -72,6 +72,7 @@ ruff check .                      # 静态检查
 - Math1：4209 users × 20 items × 11 concepts；文件名中 `0.8_0.2` 指 train/test 划分。
 - 实验固定 `set_seed(42)`（含 `torch.cuda.manual_seed_all`）以保证可复现。
 - 结果目录：`result/`（标准训练）、`incremental_result/`、`math1_result/`。
+- **画图脚本**：统一放 `GNCDM/plot/`（见该目录 `README.md`），产物仍写入 `incremental_result/`；`experiments/` 只跑实验、不放 `plot_*.py`。
 
 ## 关键代码
 

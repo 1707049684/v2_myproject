@@ -230,7 +230,11 @@ def train_clora_phase2(
     batch_size=BATCH,
     lr=LR,
     desc="C-LoRA",
+    history=None,
+    history_eval_fn=None,
 ):
+    """history/history_eval_fn：可选，画收敛曲线用。原函数不做 checkpoint 选优（无 best_state，
+    直接用最后一轮），故每 epoch 额外评测不影响任何既有行为。"""
     loader = DataLoader(SampleSet(samples_df), batch_size=batch_size, shuffle=True)
     log_t = torch.tensor(full_log_mat, dtype=torch.float32, device=device)
     optimizer = torch.optim.Adam(params, lr=lr)
@@ -256,6 +260,8 @@ def train_clora_phase2(
             loss.backward()
             optimizer.step()
             total_ce += loss_ce.item()
+        if history is not None and history_eval_fn is not None:
+            history.append({"epoch": epoch + 1, **history_eval_fn(model)})
         if (epoch + 1) % 5 == 0 or epoch == n_epoch - 1:
             print(
                 f"    [{desc}] epoch {epoch + 1}/{n_epoch} CE={total_ce / len(loader):.4f} "
@@ -321,7 +327,9 @@ def _new_model(cfg, meta, device):
 # ==========================================
 # 单个 λ：恢复 Phase-1 基座 → 冻结 + 挂 LoRA + 解冻新概念聚合列 → 训 Task1 → 评测
 # ==========================================
-def run_one_lambda(cfg, base_state, base_theta_ref, meta, lambda_ortho, device):
+def run_one_lambda(
+    cfg, base_state, base_theta_ref, meta, lambda_ortho, device, history=None, history_eval_fn=None
+):
     set_seed(42)
     model = _new_model(cfg, meta, device)
     model.load_state_dict(base_state)
@@ -351,6 +359,8 @@ def run_one_lambda(cfg, base_state, base_theta_ref, meta, lambda_ortho, device):
         device,
         lambda_ortho=lambda_ortho,
         desc=f"λ={lambda_ortho}",
+        history=history,
+        history_eval_fn=history_eval_fn,
     )
     for h in handles:
         h.remove()

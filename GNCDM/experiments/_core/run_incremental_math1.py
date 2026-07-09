@@ -117,12 +117,15 @@ def train_real(
     buffer_log=None,
     select_metric="acc",  # 检查点按验证 ACC 选优；与基线（DER++ 早停亦按 ACC）同口径，保证比较公平
     eval_fn=None,
+    history=None,
 ):
     """喂真实作答日志训练。params=要优化的参数列表（增量策略只传 'new' 参数）。
 
     模型选优（保留验证集 select_metric 最高的快照）支持两种口径：
     - eval_fn 给定：每 epoch 调 eval_fn(model)->metrics（用于 user-split 重构评测）。
     - 否则若 valid_df+buffer_log 给定：buffer 无泄漏评测（random-split 预测口径）。
+
+    history：可选 list，给定则每 epoch 追加 {"epoch": e, **vr}（画收敛曲线用）；不给不影响原行为。
     """
     loader = DataLoader(SampleSet(samples_df), batch_size=batch_size, shuffle=True)
     log_t = torch.tensor(full_log_mat, dtype=torch.float32, device=device)
@@ -152,6 +155,8 @@ def train_real(
                 populate_buffers(model, buffer_log, device)
                 vr = evaluate_buf(model, valid_df, device)
             vm = vr[select_metric]
+            if history is not None:
+                history.append({"epoch": epoch + 1, **vr})
             if vm > best_metric:
                 best_metric = vm
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}

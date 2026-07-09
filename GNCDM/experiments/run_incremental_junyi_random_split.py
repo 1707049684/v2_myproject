@@ -3,7 +3,7 @@
 
 topic 级共享概念，ReliCD/QCCDM 对齐稠密版 1000×712×39（人均 ~204 作答）。
 test 用户与训练共享 → 预测口径。alpha 由 sweep_junyi_random_alpha.py 全扫
-0.1~0.95、按 DNA mean(valid AUC) 选定（0.1 见顶 0.8109，0.2 统计持平）。
+0.1~0.95、按 DNA mean(valid ACC) 选定（0.1 见顶 sel_DNA_validACC=0.7704）。
 run_experiment(buf) 出 6 Ours → cl_baselines_random_split.run_one() 跑 3 基线并合并。
 维度从文件读；ΔK 用 auto_new_concepts(0.34)。
 产物：incremental_result/all_methods_junyi_random_split.{csv,md}（需 avalanche）。

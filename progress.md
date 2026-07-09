@@ -151,3 +151,49 @@
 - 官方超参与口径同 math1/a0910（`cdm=ncd, alpha=0.2, tolerance=0.2, beta=0.9, epoch=1, warmup_ratio=0.1`；strict_bipartition 34% 新概念 old=455/new=257 题、old=15 概念）。
 - **结果**：`AUC_old=0.7659 AUC_new=0.7457 ACC_old=0.7270 ACC_new=0.6257 F1_old=0.7994 F1_new=0.7697 RD(TMD)=1.4328`（原始行落 `GNCDM/experiments/icd_out_junyi/icd_row_junyi_random_split.csv`），已追加进 `all_methods_junyi_random_split.csv` 末行。整体强度介于 Base 与其余持续学习基线之间，无异常退化（new-test 预测 std 偏小属 ICD 对新题冷启动的已知特征，非 bug）。
 - **当前状态**：未提交。
+
+## 2026-07-09 — 会话：a0910/junyi alpha-sweep 选择口径改 ACC；新增效率-效果收敛曲线图
+- 用户指出 junyi/math1/a0910 目前都按 AUC 选最优 alpha，要求统一改 ACC。核查后发现 math1 的 `sweep_base_alpha_random.py` 其实本来就按 `ACC_old` 排序选优（未受影响）；真正 AUC 口径的是 `sweep_a0910_random_alpha.py` / `sweep_junyi_random_alpha.py` 里的 `sel_DNA_validAUC = 0.5*(auc_old+auc_new)`，已改成 `sel_DNA_validACC = 0.5*(acc_old+acc_new)`（含变量名、列名、docstring 同步）。**未重跑**——a0910/junyi 该 sweep 要 GPU 服务器（10 alpha × Base+DNA+LoRA × 25ep），本地跑不动；现有 `alpha_sweep_{a0910,junyi}_random_split.csv` 对应旧 AUC 口径已过期，需服务器重跑后回填 `run_incremental_{a0910,junyi}_random_split.py` 的 `ALPHA` 常量与 `AGENTS.md`/`CLAUDE.md` 说明。
+- 用户要画"效率 vs 效果"图（图A：x=epoch，y=ACC_new），发现增量实验管线（`train_real`）此前**只 print 逐 epoch 验证指标、不落盘**，仓库里也没有任何逐 epoch 曲线数据或画图脚本。给 `run_incremental_math1.py` 的 `train_real` 加了一个**纯可选、向后兼容**的 `history=None` 形参（不传不影响任何现有调用方），传入 list 时会在每个 epoch 追加 `{"epoch": e, **vr}`。
+- 新增 `GNCDM/experiments/plot_epoch_curve_math1.py`：复用 `run_incremental_math1` 里的 Base 训练 + 4 个扩展策略（Ours-DNA/Ours-LoRA/Full-Replay-Oracle/Naive-FT），全部用 `valid_new` 上的 buffer 无泄漏 ACC 做统一纵轴（口径一致才可比），跑 15 epoch（与主实验 n_epoch 一致）记录曲线，产出 `incremental_result/epoch_curve_math1_random_split.{csv,png}`。本机 CPU 跑通，约 75 秒。
+- **图上观察**（math1, alpha=0.20）：Ours(DNA) 在 epoch≈4 即达到峰值 ACC_new≈0.757 且此后仅缓慢回落，收敛最快、最稳；Full-Replay-Oracle 与 Naive-FT 早期（epoch 1-2）冲得快但从 epoch 5 起明显下滑（小数据集全参数训练过拟合）；Ours(LoRA) 因 rank=4 容量小、收敛慢，前期垫底，到 epoch 13+ 才回升——直观呈现"参数高效策略更快更稳收敛"的效率优势。
+- **当前状态**：改动未提交，含 `.cursor` 相关三文件在内此前也一直未提交（见上一轮）。
+
+## 2026-07-09 — 会话：图A 扩到 8 模型（CLEAN-Full/CLEAN-LoRA/Full-Replay/EWC/DER++/C-LoRA-GNCDM/X-DER/IRT），math1 random_split
+- 用户要求把效率-效果图从 4 条曲线扩到 8 个模型（改名 Ours(DNA)→CLEAN-Full、Ours(LoRA)→CLEAN-LoRA，去掉 Naive-FT，加 Full-Replay/EWC/DER++/C-LoRA(同框架)/X-DER/IRT）。就每个模型能不能拿到"新题 valid ACC 逐 epoch"这条曲线，先派 explore 子agent 摸底，再问用户 IRT 处理方式 + 基线改动安全边界两个问题，**用户跳过未答**，按最保守默认自行决策（见下）。
+- **环境阻塞与绕过**：EWC/DER++ 依赖 avalanche-lib，本机主环境（Windows + Python 3.13 + anaconda）没装，`pip install avalanche-lib` 会连带装 `qpsolvers[open_source_solvers]` 里的 `proxsuite`（要 cmake+MSVC 编译，本机无构建工具，直接失败）。查到 proxsuite 只是 GEM 策略用的、EWC/DER 用不到 → 新建独立 venv `_scratch/clbase-venv`，手动装 `torch(cpu)+avalanche-lib(--no-deps)+其余非 qpsolvers-extras 依赖+裸 qpsolvers(不装 open_source_solvers)+wandb`，成功导入 `EWC/DER`（无 QP solver 的 warning 可忽略，不影响 EWC/DER）。
+- **改动策略（全部"监控式"，不碰任何选优/训练动态）**：
+  - `run_incremental_math1.py::train_real`：已有 `history` 参数（上一轮加的），直接复用。
+  - `run_xder.py::train_xder`/`run_xder`：新增可选 `history`/`history_eval_fn` 形参，默认 `None` 零行为变化；不给 `history_eval_fn` 时退化用选优用的 combined-valid（**踩过一次坑**：第一次跑漏传 `history_eval_fn`，曲线纵轴其实是新旧混合 valid 而非 ACC_new，跟其它曲线口径不一致，发现后补传 `new_task_eval_fn(c, device)` 重跑修正）。
+  - `gncdm_clora_baseline.py::train_clora_phase2`/`run_one_lambda`：同款新增 `history`/`history_eval_fn`；该基线本身训练完不做 checkpoint 选优（直接用最后一轮），所以逐 epoch 额外评测（用 `test_new`，因为该脚本压根没读 valid 文件）不影响任何既有行为。
+  - EWC：没有拆分 `strat.train(exp, train_epochs=15)` 这次单次调用（怕破坏 Fisher 计算时机），改用 avalanche `SupervisedPlugin.after_training_epoch` 钩子，只在 `current_experience==1`（新题 Task）时读一次 `valid_new_ds` ACC——单次调用结构与官方 `run_ewc` 完全一致，零风险。
+  - DER++：官方 `run_der` 本来就是"外层 for epoch + `train_epochs=1`"手写循环，直接在循环里多加一行 `valid_new_ds` 评测记录，不改 `best_acc/wait`/checkpoint 选优逻辑。lambda=1000（EWC）、mem=5000（DER++）均取官方 `all_methods_math1_random_split.csv` 里已选定的值，只跑这一组、不做完整 sweep。
+- **一致性核对**（跑完后逐个跟 `all_methods_math1_random_split.csv` 官方数对比，确认改动没引入 bug，只是环境/库版本导致的正常小幅漂移）：EWC test ACC_new 本次=0.7329 vs 官方 0.7351；DER++ 本次=0.7579 vs 官方 0.7553；X-DER 本次=0.7591 vs 官方 0.7547；C-LoRA-GNCDM 本次=0.6900 vs 官方 0.6896（几乎精确一致）。CLEAN-Full/CLEAN-LoRA/Full-Replay 曲线的"末轮"数值不等于官方数是**预期行为**（`train_real` 按 valid ACC 做 best-checkpoint 选优，曲线画的是全部 15 epoch 的原始轨迹，官方数对应曲线峰值那个 epoch，不是最后一个 epoch）。
+- **IRT 处理**（用户跳过提问后自行选择"最诚实"默认）：GIRT 完全没有增量学习设定（`data_prepare.py` 就是把 20 题一次性转成稠密矩阵联合训练，`fit()` 没有 old→new 两阶段概念）。发现 `GIRT/checkpoint/girt2pl-math1-random-split/` 下已有历史遗留的 `checkpoint-epoch-{0..10}.pt`（`training_config_math1.json` n_epoch=10, checkpoint_gap=1），省了重新训练。写 `GIRT/irt_epoch_curve_math1.py`：对每个 epoch 的 checkpoint 调 `model.eval(train_sm, test_sm)` 拿稀疏预测，用 `GNCDM/data/math1_Q_matrix.npy` 的 ΔK=[0,1,3,6] 判定原始 new-item 集合、经 `item_id_map.json`（GIRT 内部列号≠原始 item_id，是按 CSV 首次出现顺序编的稠密列）反查成 GIRT 矩阵列号，切出新题子集算 ACC。结果几乎是平线（≈0.758，10 个点几乎不变）——因为 IRT 从 epoch 1 起就同时看到新旧题（联合训练，无持续学习机制），图上用红色虚线+星形标记区分，明确标注"方法论不同，非同口径增量曲线"，不是造假拼出来的曲线。
+- **三个产物脚本**（拆开跑是因为 EWC/DER++ 必须用 avalanche 环境）：
+  - `GNCDM/experiments/plot_epoch_curve_gncdm_math1.py`（主 anaconda 环境）→ CLEAN-Full/CLEAN-LoRA/Full-Replay/X-DER/C-LoRA-GNCDM 5 条曲线，`incremental_result/epoch_curve_gncdm_math1_random_split.csv`。
+  - `GNCDM/experiments/plot_epoch_curve_avalanche_math1.py`（须用 `_scratch/clbase-venv/Scripts/python.exe` 跑）→ EWC/DER++ 2 条曲线，`incremental_result/epoch_curve_avalanche_math1_random_split.csv`（DER++ 早停在 epoch 6 就停了，只有 6 个点，符合预期）。
+  - `GIRT/irt_epoch_curve_math1.py` → IRT 参考线，`GNCDM/incremental_result/epoch_curve_irt_math1_random_split.csv`。
+  - `GNCDM/experiments/plot_epoch_curve_final_math1.py`：合并上面 3 份 CSV → `incremental_result/epoch_curve_math1_random_split_final.{csv,png}`（最终图，8 条线，图注全英文避免中文字体缺字警告）。
+- **当前状态**：改动未提交（含本轮新增/修改的 5 个脚本文件 + 3 个 `run_*.py`/`gncdm_clora_baseline.py` 的 additive 改动）。a0910/junyi 的 8 模型版图未做（本轮只做了 math1）。
+
+## 2026-07-09 — 会话：画图脚本迁至 GNCDM/plot/
+- 将 `experiments/plot_epoch_curve_{math1,gncdm_math1,avalanche_math1,final_math1}.py` 共 4 个脚本移至 `GNCDM/plot/`，统一 `sys.path` 引导（`GNCDM/` + `experiments/` + `experiments/_core/`），docstring 运行说明改为 `cd GNCDM/plot`。
+- 新增 `GNCDM/plot/README.md` 记录目录约定；`AGENTS.md`/`CLAUDE.md`「数据与约定」补充「画图脚本放 plot/」。
+- 产物路径不变，仍写 `incremental_result/`。
+
+## 2026-07-09 — 会话：效率-效果图把 IRT 换成 ICD
+- 用户要求把图A终版里的 IRT 参考线换成 ICD，并删掉 `GIRT/irt_epoch_curve_math1.py`（已删，含其产物 `epoch_curve_irt_math1_random_split.csv`）。
+- 新增 `GNCDM/experiments/run_icd_math1_curve.py`（放在 experiments/ 而非 plot/，因为它是数据生成脚本、不含 matplotlib，跟其它 ICD 基线脚本同类，参照 README 里"IRT 曲线脚本留在 GIRT 包内"的先例）。用 `_scratch/icd-venv` 跑。
+- **实现方式（监控式，不碰 `run_icd_math1_A.py` 官方基线脚本本身，也不修改 EduCDM 库）**：子类化 `ICD` 只重写 `eval()`——先调 `super().eval(...)` 保留原有 stableness/trait 日志，再在新题阶段（`i >= len(old_chunks)`）额外用固定的 `valid_new` 跑一次评测存进 history。`inner_metrics=True` 让 `eval()` 在每个 stream step 都被调用（默认 `inner_metrics=False` 只在最后一步调用）。**关键约束**：全程只调用一次 `model.train(old_chunks + new_chunks, ...)`（跟官方脚本完全一样的单次调用），没有拆成两次调用——因为 ICD 的 `warmup=int(warmup_ratio*len(stream))` 和 turning-point 判定是在这一次调用里按"整条 stream 长度"一次性算好的，拆开调用会打乱这个计算（`run_icd_math1_A.py` 顶部注释原话）。
+- **重要发现（曲线是平线，不是 bug）**：给 `eval()` 加了 `tps_so_far=len(tps)` 诊断字段后确认，本次跑（`tolerance=0.2`，跟官方基线同款超参）里，new-item 阶段全部 25 个 chunk **一次 turning point 都没触发**（`tps` 最终只有 `[0,1,2,3,4,19]`，全部落在旧题阶段），也就是模型在新题阶段自始至终没有再训练，完全靠旧题阶段学到的 DTN 编码器零样本泛化到新题。曲线末点 ACC_new=0.7149/AUC_new=0.7230（valid_new），跟官方 `all_methods_math1_random_split.csv` 里 ICD 那一行的 test 口径 ACC_new=0.7129/AUC_new=0.7258 几乎一致（valid vs test 的正常小幅差异），说明我的曲线脚本复现的模型状态跟官方管线一致，不是实现错误。
+- 图上把这条线画成红色虚线+星形（跟原 IRT 的视觉处理一致，用来跟其它 7 条"真实每 epoch 更新参数"的曲线区分），并在 `plot_epoch_curve_final_math1.py` 顶部 docstring 和 `GNCDM/plot/README.md` 里都补充了这条平线的成因说明（ICD 按需增量、训练开销=0，不是收敛失败）。
+- **产物**：`GNCDM/incremental_result/epoch_curve_icd_math1_random_split.csv`（24 个 chunk 点）+ 重新合并生成的 `epoch_curve_math1_random_split_final.{csv,png}`（8 条线：CLEAN-Full/CLEAN-LoRA/Full-Replay/EWC/DER++/C-LoRA-GNCDM/X-DER/ICD）。
+- **当前状态**：改动未提交。
+
+### 追加：用户追问"ICD 能不能跟其它模型一起比"，决定图A不放 ICD
+- 我的回答分两层：①总表最终指标对比（`all_methods_*.csv`）完全成立——比的是各方法跑完自己协议后的结果，跟训练过程无关；②效率曲线（图A）不成立——图A的 x 轴含义是"同一份新题训练集被重复训练的第几个 epoch"，7 条曲线每格都对应一次真实梯度更新，而 ICD 是单遍流式、是否更新由 `turning_point()` 门控（实测全程未触发），根本没有"随 epoch 收敛"这个过程，两种 x 轴单位不对等，硬放一起会误导读者。
+- 用户选择：**图A不画 ICD，改成加一句图解说明为什么不能用 ICD**（而不是保留虚线/改成标注点）。
+- 改动：`plot_epoch_curve_final_math1.py` 去掉 ICD（STYLE/ORDER/CSV 合并全部移除），改回 7 模型；docstring 开头加一段"为什么不画 ICD"的说明；图上用 `fig.text` 加一行小字脚注（"ICD not shown: single-pass streaming method..."），并调整 `figsize`/`tight_layout(rect=...)` 给这行脚注留出空间避免跟 x 轴标题重叠。`GNCDM/plot/README.md` 同步更新说明。
+- `experiments/run_icd_math1_curve.py` 脚本和它产出的 `epoch_curve_icd_math1_random_split.csv` **保留不删**，作为旁证/以防论文其它地方要用，但不再接入图A的合并流程。
+- **当前状态**：改动未提交。
