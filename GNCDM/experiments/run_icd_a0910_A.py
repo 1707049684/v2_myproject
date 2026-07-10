@@ -31,14 +31,25 @@ from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, roc_au
 
 # ---- config ----
 DATASET = "a0910"
-_DEFAULT_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", DATASET)
-DATA_DIR = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.abspath(_DEFAULT_DATA)
-CTX = sys.argv[2] if len(sys.argv) > 2 else ("cuda:0" if torch.cuda.is_available() else "cpu")
-STREAM_PER_STAGE = int(sys.argv[3]) if len(sys.argv) > 3 else 25
-SPLIT_TAG = sys.argv[4] if len(sys.argv) > 4 else "random_split"
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DEFAULT_DATA = os.path.join(_REPO, "data", DATASET)
+
+_extra = list(sys.argv[1:])
+if _extra and _extra[-1] in ("random_split", "user_split"):
+    _SPLIT_FROM_ARGV = _extra.pop()
+else:
+    _SPLIT_FROM_ARGV = "random_split"
+if _extra and os.path.isfile(os.path.join(_extra[0], "Q_matrix.npy")):
+    DATA_DIR = os.path.abspath(_extra.pop(0))
+else:
+    DATA_DIR = os.path.abspath(_DEFAULT_DATA)
+CTX = _extra.pop(0) if _extra else ("cuda:0" if torch.cuda.is_available() else "cpu")
+STREAM_PER_STAGE = int(_extra.pop(0)) if _extra else 25
+SPLIT_TAG = _SPLIT_FROM_ARGV
 assert SPLIT_TAG in ("random_split", "user_split"), f"bad SPLIT_TAG={SPLIT_TAG}"
 
 NEW_ITEM_FRAC = 0.34
+SUPPORT_FRAC, SPLIT_SEED = 0.5, 7  # user_split 与 eval_all_methods_user_split 同口径
 # alpha/tolerance/beta/epoch: EduCDM examples/ICD/ICD.py main() defaults.
 # warmup_ratio=0 (not the generic 0.1): bigdata-ustc/ICD's own a0910 example command is
 # `pure_stream_inc_run.py --dataset a0910 --cdm ncd --alpha 0.2 --beta 0.9 --tolerance 0.2
@@ -126,6 +137,11 @@ def remap_items(df, item_id_map):
     df = df.copy()
     df["item_id"] = df["item_id"].map(item_id_map).astype(int)
     return df
+
+
+def split_support_query(df, frac=SUPPORT_FRAC, seed=SPLIT_SEED):
+    sup = df.groupby("user_id", group_keys=False).sample(frac=frac, random_state=seed)
+    return sup, df.drop(sup.index)
 
 
 # ---- load + bipartition ----
@@ -225,10 +241,24 @@ print(f"RD (old-user trait drift, L2): {RD:.6f}")
 
 net.eval()
 dev = next(net.parameters()).device
-u2i, i2u = user2items(tr), item2users(tr)
+_thr = 0.5  # random_split / 默认：与主表其它方法一致
+sup_te = None
+if SPLIT_TAG == "user_split":
+    # test 用户训练集不可见；用 train+support 建邻域，在 query 上评（与 G-NCDM user_split 一致）
+    sup_te, qry_te = split_support_query(te)
+    graph_df = pd.concat([tr, sup_te], ignore_index=True)
+    u2i, i2u = user2items(graph_df), item2users(graph_df)
+    old_eval = qry_te[qry_te.item_id < n_item_old]
+    new_eval = qry_te[qry_te.item_id >= n_item_old]
+    print(
+        f"user_split eval: support={len(sup_te)} | query old={len(old_eval)} new={len(new_eval)}"
+    )
+else:
+    u2i, i2u = user2items(tr), item2users(tr)
+    old_eval, new_eval = old_te, new_te
 
 
-def eval_subset(df_subset):
+def predict_scores(df_subset):
     yt, yp = [], []
     data = transform(
         df_subset,
@@ -247,18 +277,51 @@ def eval_subset(df_subset):
             pred, *_ = net(U.to(dev), um.to(dev), I.to(dev), im.to(dev), IK.to(dev))
             yp.extend(pred.detach().cpu().tolist())
             yt.extend(r.tolist())
-    yt, yp = np.array(yt), np.array(yp)
-    yl = (yp >= 0.5).astype(int)
+    return np.array(yt), np.array(yp)
+
+
+def threshold_from_support(yt, yp):
+    """在 support 上用 Youden J 选阈值（冷启动合法：support 评测时可见，不碰 query）。"""
+    from sklearn.metrics import roc_curve
+
+    if len(yt) == 0 or len(set(yt.tolist())) < 2:
+        return 0.5
+    fpr, tpr, thr = roc_curve(yt, yp)
+    j = tpr - fpr
+    return float(thr[int(j.argmax())])
+
+
+if SPLIT_TAG == "user_split" and sup_te is not None:
+    yt_s, yp_s = predict_scores(sup_te)
+    _thr = threshold_from_support(yt_s, yp_s)
+    acc_s05 = accuracy_score(yt_s, (yp_s >= 0.5).astype(int)) if len(yt_s) else float("nan")
+    acc_st = accuracy_score(yt_s, (yp_s >= _thr).astype(int)) if len(yt_s) else float("nan")
+    print(
+        f"user_split threshold: Youden on support → t={_thr:.4f} "
+        f"(support ACC@0.5={acc_s05:.4f} → ACC@t={acc_st:.4f}); "
+        f"ACC/F1 on query use this t; AUC/RMSE unchanged"
+    )
+
+
+def eval_subset(df_subset, thr=_thr):
+    yt, yp = predict_scores(df_subset)
+    if len(yt) == 0:
+        print("    [diag] n=0 (no evaluable rows — check user_split support/query graph)")
+        nan = float("nan")
+        return nan, nan, nan, nan, 0
+    yl = (yp >= thr).astype(int)
+    auc = roc_auc_score(yt, yp) if len(set(yt.tolist())) > 1 else float("nan")
+    acc = accuracy_score(yt, yl)
     print(
         f"    [diag] n={len(yt)} pos_rate(true)={yt.mean():.4f} "
-        f"pred: mean={yp.mean():.4f} std={yp.std():.4f} min={yp.min():.4f} max={yp.max():.4f}"
+        f"pred: mean={yp.mean():.4f} std={yp.std():.4f} min={yp.min():.4f} max={yp.max():.4f} "
+        f"| thr={thr:.4f} ACC={acc:.4f}"
     )
-    auc = roc_auc_score(yt, yp) if len(set(yt.tolist())) > 1 else float("nan")
-    return auc, mean_squared_error(yt, yp) ** 0.5, accuracy_score(yt, yl), f1_score(yt, yl), len(yt)
+    return auc, mean_squared_error(yt, yp) ** 0.5, acc, f1_score(yt, yl), len(yt)
 
 
-auc_o, rmse_o, acc_o, f1_o, n_o = eval_subset(old_te)
-auc_n, rmse_n, acc_n, f1_n, n_n = eval_subset(new_te)
+auc_o, rmse_o, acc_o, f1_o, n_o = eval_subset(old_eval)
+auc_n, rmse_n, acc_n, f1_n, n_n = eval_subset(new_eval)
 
 row = {
     "Method": "ICD",
@@ -275,6 +338,11 @@ row = {
 print(f"\n===== ICD (cdm=ncd) on {DATASET}_{SPLIT_TAG} — Approach A =====")
 print(f"  old-test n={n_o}: AUC={auc_o:.4f} ACC={acc_o:.4f} F1={f1_o:.4f} RMSE={rmse_o:.4f}")
 print(f"  new-test n={n_n}: AUC={auc_n:.4f} ACC={acc_n:.4f} F1={f1_n:.4f} RMSE={rmse_n:.4f}")
+if SPLIT_TAG == "user_split":
+    print(
+        f"\n[NOTE] user_split ACC/F1 使用 support 上 Youden 阈值 t={_thr:.4f}（冷启动合法校准）；\n"
+        f"  AUC/RMSE 与阈值无关。random_split 仍固定 t=0.5。写入主表时请在脚注说明此点。"
+    )
 out_csv = os.path.join(OUT, f"icd_row_{DATASET}_{SPLIT_TAG}.csv")
 pd.DataFrame([row]).to_csv(out_csv, index=False)
 # ready-to-append line (TMD column = RD) for all_methods_{DATASET}_random_split.csv
