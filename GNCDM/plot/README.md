@@ -25,6 +25,8 @@ python plot_epoch_curve_final_math1.py       # 合并上述 CSV，出终版图
 | `plot_epoch_curve_avalanche_math1.py` | EWC / DER++（avalanche 环境） |
 | `plot_epoch_curve_final_math1.py` | 合并 7 模型终版图（纵轴 ACC_new） |
 | `plot_epoch_curve_final_math1_old.py` | 合并 7 模型终版图（纵轴 ACC_old，旧任务保持） |
+| `plot_alpha_sensitivity_random.py` | Math1/junyi/a0910 random_split 的 α 敏感性（sel_DNA_validACC） |
+| `plot_umap_math1_gncdm.py` | Math1 θ UMAP：默认三面板 G-NCDM \| CLEAN-Full \| CLEAN-LoRA（`--compare all3`） |
 
 **ICD 不在这张图里**：ICD 是单遍流式方法，新题阶段是否更新参数由 `turning_point()`
 按分布漂移量门控决定（实测本次 25 个 chunk 全部未触发，零样本泛化），没有"随 epoch 反复
