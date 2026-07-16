@@ -21,6 +21,7 @@ embedding 空间，量级**不可**与 Ours 概念 θ RD 直接比，仅看是�
 import copy
 import math
 import os
+import random
 
 import numpy as np
 import pandas as pd
@@ -59,10 +60,15 @@ LORA_ALPHA = 16
 CLORA_LAMBDA_SWEEP = [0, 1, 10, 100, 1000, 10000]
 
 
-def set_seed(seed=42):
+def set_seed(seed=42, *, deterministic=False):
+    """Seed all RNGs used by the random-split CL baselines."""
+    random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    if deterministic and torch.backends.cudnn.is_available():
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 # ==========================================================================
@@ -258,23 +264,26 @@ def _row(method, old_m, new_m, tmd):
     }
 
 
-def _eval_both(model, meta, device):
+def _eval_both(model, meta, device, *, split="test"):
+    if split not in {"valid", "test"}:
+        raise ValueError(f"split must be 'valid' or 'test', got {split!r}")
     return (
-        evaluate_cd_metrics(model, meta["test_old_ds"], device),
-        evaluate_cd_metrics(model, meta["test_new_ds"], device),
+        evaluate_cd_metrics(model, meta[f"{split}_old_ds"], device),
+        evaluate_cd_metrics(model, meta[f"{split}_new_ds"], device),
     )
 
 
 # ==========================================================================
 # EWC λ 扫描 / DER++（早停）/ C-LoRA λ 扫描
 # ==========================================================================
-def run_ewc(meta, device):
+def run_ewc(meta, device, *, seed=42, lambdas=None, eval_split="test"):
     from avalanche.training.supervised import EWC
 
     print("\n=== EWC λ 扫描 ===")
     rows = []
-    for lam in EWC_LAMBDA_SWEEP:
-        set_seed(42)
+    lambdas = EWC_LAMBDA_SWEEP if lambdas is None else list(lambdas)
+    for lam in lambdas:
+        set_seed(seed)
         model = CognitiveBackbone(meta["num_students"], meta["num_items"], EMBED_DIM).to(device)
         strat = EWC(
             model,
@@ -292,7 +301,7 @@ def run_ewc(meta, device):
             strat.train(exp)
             if exp.current_experience == 0:
                 b0 = model.student_emb.weight.data.clone().cpu()
-        old_m, new_m = _eval_both(model, meta, device)
+        old_m, new_m = _eval_both(model, meta, device, split=eval_split)
         r = _row(
             f"EWC (lambda={lam})",
             old_m,
@@ -305,11 +314,11 @@ def run_ewc(meta, device):
     return rows
 
 
-def run_der(meta, device):
+def run_der(meta, device, *, seed=42, eval_split="test"):
     from avalanche.training.supervised import DER
 
     print("\n=== DER++（早停）===")
-    set_seed(42)
+    set_seed(seed)
     model = CognitiveBackbone(meta["num_students"], meta["num_items"], EMBED_DIM).to(device)
     strat = DER(
         model,
@@ -346,7 +355,7 @@ def run_der(meta, device):
             model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
         if tid == 0:
             b0 = model.student_emb.weight.data.clone().cpu()
-    old_m, new_m = _eval_both(model, meta, device)
+    old_m, new_m = _eval_both(model, meta, device, split=eval_split)
     r = _row(
         f"DER++ (mem={MEM_SIZE})",
         old_m,
@@ -373,22 +382,23 @@ def _train_phase(model, dataset, epochs, device, lambda_ortho=None):
             optimizer.step()
 
 
-def run_clora(meta, device):
+def run_clora(meta, device, *, seed=42, lambdas=None, eval_split="test"):
     print("\n=== C-LoRA λ_ortho 扫描 ===")
-    set_seed(42)
+    set_seed(seed)
     base_model = CognitiveBackbone(meta["num_students"], meta["num_items"], EMBED_DIM).to(device)
     _train_phase(base_model, meta["train_old_ds"], BASE_EPOCHS, device, lambda_ortho=None)
     base_state = copy.deepcopy(base_model.state_dict())
     rows = []
-    for lam in CLORA_LAMBDA_SWEEP:
-        set_seed(42)
+    lambdas = CLORA_LAMBDA_SWEEP if lambdas is None else list(lambdas)
+    for lam in lambdas:
+        set_seed(seed)
         model = CognitiveBackbone(meta["num_students"], meta["num_items"], EMBED_DIM).to(device)
         model.load_state_dict(base_state)
         b0 = model.student_emb.weight.data.clone().cpu()
         inject_lora(model)
         model.to(device)
         _train_phase(model, meta["train_new_ds"], CLORA_EPOCHS, device, lambda_ortho=float(lam))
-        old_m, new_m = _eval_both(model, meta, device)
+        old_m, new_m = _eval_both(model, meta, device, split=eval_split)
         r = _row(
             f"C-LoRA (lambda={lam})",
             old_m,
@@ -403,6 +413,31 @@ def run_clora(meta, device):
 
 def _pick_balanced(rows):
     return max(rows, key=lambda r: (r["AUC_old"] + r["AUC_new"]) / 2.0)
+
+
+def select_baselines_on_validation(meta, device, *, seed=42):
+    """Tune EWC/C-LoRA on validation data and evaluate each choice once on test.
+
+    This is intentionally separate from the legacy ``run_one`` path, whose
+    historic wide table selected lambda from test metrics. The returned rows
+    are safe to place in a formal per-seed statistical analysis table.
+    """
+
+    ewc_valid = run_ewc(meta, device, seed=seed, eval_split="valid")
+    ewc_lambda = _pick_balanced(ewc_valid)["lambda"]
+    ewc_test = run_ewc(meta, device, seed=seed, lambdas=[ewc_lambda], eval_split="test")[0]
+    ewc_test["selected_lambda"] = ewc_lambda
+    ewc_test["selection_source"] = "validation_balanced_auc"
+
+    clora_valid = run_clora(meta, device, seed=seed, eval_split="valid")
+    clora_lambda = _pick_balanced(clora_valid)["lambda"]
+    clora_test = run_clora(meta, device, seed=seed, lambdas=[clora_lambda], eval_split="test")[0]
+    clora_test["selected_lambda"] = clora_lambda
+    clora_test["selection_source"] = "validation_balanced_auc"
+
+    der_test = run_der(meta, device, seed=seed, eval_split="test")
+    der_test["selection_source"] = "validation_early_stopping"
+    return [ewc_test, der_test, clora_test]
 
 
 # ==========================================================================

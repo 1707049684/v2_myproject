@@ -223,3 +223,40 @@
 - è„šæœ¬åŠ  `--epochs`ï¼ˆé»˜è®¤ 25ï¼‰ï¼Œè¾“å‡ºå¸¦åç¼€ `ep{N}`ï¼›é‡è·‘ ep25 æ•°æ® + ç»ˆç‰ˆå›¾ã€‚
 - **äº§ç‰©**ï¼š`epoch_curve_math1_random_split_final_ep25.{csv,png}`ã€`epoch_curve_math1_random_split_final_old_ep25.{csv,png}`ï¼›15 è½®ç‰ˆä»åœ¨ `*_ep15.*`ã€‚
 - **å½“å‰çŠ¶æ€**ï¼šæ”¹åŠ¨æœªæäº¤ã€‚
+
+### ×·¼Ó£ºalpha Ãô¸ĞĞÔÍ¼£¨Math1 / junyi / a0910 random_split£©
+- ½Å±¾£º`GNCDM/plot/plot_alpha_sensitivity_random.py`£¨¶ÁÈı·İ `alpha_sweep_*_random_split.csv`£©¡£
+- ×İÖá£ºÑ¡Ôñ±ê×¼ `sel_DNA_validACC` + ĞéÏß `DNA_te_ACCnew`£»ºìĞÇ±êÖ÷ÊµÑéÑ¡ÓÃ ¦Á£¨Math1=0.20£¬junyi/a0910=0.10£©¡£
+- ²úÎï£º`incremental_result/alpha_sensitivity_random_split.{png,pdf,svg}`£»Ë³´øĞŞÕı a0910 CSV ÎÄ¼şÃûÎ²Ëæ¿Õ¸ñ¡£
+- **µ±Ç°×´Ì¬**£º¸Ä¶¯Î´Ìá½»¡£
+
+### ×·¼Ó£ºMath1 G-NCDM ¦È UMAP µ¥Í¼£¨Fig.10 ·ç¸ñ£©
+- ½Å±¾£º`GNCDM/plot/plot_umap_math1_gncdm.py`£¨È«Á¿ 20 Ìâ G-NCDM£¬¦Á=0.8£¬15 ep£»`diagnose_theta` ¡ú UMAP ¡ú RdBu_r °´ score rate ×ÅÉ«£©¡£
+- ²úÎï£º`incremental_result/umap_math1_gncdm.{png,pdf,svg}`£»»º´æ `umap_cache_math1/{theta_gncdm,score_rate,umap_xy_gncdm}.npy`¡£
+- ¹Û²ì£ºË®Æ½·½Ïò³ÊÇåÎúÀ¶¡úºìµÃ·ÖÂÊÌİ¶È£¬ÓëÂÛÎÄ Fig.10(d) ĞÎÌ¬Ò»ÖÂ¡£ÏÂÒ»²½¿É¼Ó CLEAN-Full ¶ÔÕÕÃæ°å¡£
+- **µ±Ç°×´Ì¬**£º¸Ä¶¯Î´Ìá½»¡£
+
+### ×·¼Ó£ºUMAP Ë«Ãæ°å G-NCDM vs CLEAN-Full£¨Math1£©
+- À©Õ¹ `plot_umap_math1_gncdm.py`£ºÃæ°å (a) È«Á¿ G-NCDM£»(b) Base+Dynamic DNA£¨¦Á=0.20£¬`mask_agg_old`£©¡£
+- ²úÎï£º`incremental_result/umap_math1_gncdm_vs_clean_full.{png,pdf,svg}`£»»º´æ `theta_clean_full.npy` / `umap_xy_clean_full.npy`¡£
+- **µ±Ç°×´Ì¬**£º¸Ä¶¯Î´Ìá½»¡£
+
+### ×·¼Ó£ºUMAP CLEAN-Full vs CLEAN-LoRA£¨Math1£©
+- `plot_umap_math1_gncdm.py` Ä¬ÈÏ `--compare full_lora`£»²úÎï `umap_math1_clean_full_vs_lora.{png,pdf,svg}`¡£
+- CLEAN-Full ¸´ÓÃ»º´æ£»CLEAN-LoRA ĞÂÑµ Base+Ours(LoRA) ²¢»º´æ `theta_clean_lora.npy`¡£
+- **µ±Ç°×´Ì¬**£º¸Ä¶¯Î´Ìá½»¡£
+
+### è¿½åŠ ï¼šæ—§é¢˜é¢„æµ‹åˆ†å¸ƒæ¶ˆèå›¾ï¼ˆå¯¹åº” OrthoMask / FrozenBiasï¼‰
+- è„šæœ¬ï¼š`GNCDM/plot/plot_old_pred_dist_ablation.py`ï¼ˆä¸ `run_ablation_dna_a0910_user_split.py` åŒåè®®ï¼šuser_split support/queryï¼‰ã€‚
+- æ–¹æ³•ï¼šBase / CLEAN-Full / w/o OrthoMask / w/o FrozenBias / w/o OCM(=Ours-Ablated)ã€‚
+- Math1 æœ¬åœ°å·²è·‘ï¼šCLEAN-Full ä¸ Base çš„ `mean|Î”Å·|=0`ï¼ˆé€ä½ç›¸åŒï¼‰ï¼›ä¸‰æ¶ˆèå…¨é¢åç§»ã€‚
+- äº§ç‰©ï¼š`old_pred_dist_ablation_math1_user_split.{png,csv}`ï¼›pdf/svg åœ¨ `additonal/`ã€‚
+- a0910ï¼ˆå¯¹é½è¡¨ `ablation_a0910_user_split.csv`ï¼‰éœ€ GPUï¼š`python plot_old_pred_dist_ablation.py --dataset a0910`ã€‚
+- **å½“å‰çŠ¶æ€**ï¼šæ”¹åŠ¨æœªæäº¤ã€‚
+
+### è¿½åŠ ï¼šæ—§é¢˜é¢„æµ‹ AlignedUMAPï¼ˆMath1 random_split æ¶ˆèï¼‰
+- è„šæœ¬ï¼š`plot_aligned_umap_math1_pred_ablation.py`ï¼›åµŒå…¥å¯¹è±¡æ˜¯ `Å·_old âˆˆ R^{M_old}`ï¼ˆé Î¸_oldï¼Œå¦åˆ™æ¶ˆèçœ‹ä¸å‡ºå·®åˆ«ï¼‰ã€‚
+- å£å¾„ï¼šMath1 random_splitã€Î±=0.20ã€`forward_using_buf`ã€‚
+- CLEAN-Fullï¼šmean |y1-y0|_2=0ï¼›w/o OrthoMaskâ‰ˆ0.78ï¼›w/o FrozenBiasâ‰ˆ0.17ï¼›w/o OCMâ‰ˆ0.76ã€‚
+- äº§ç‰©ï¼š`aligned_umap_math1_pred_ablation_grid.png` + å„æ–¹æ³• `*_pred_drift.png`ï¼›pdf/svg åœ¨ `additonal/`ã€‚
+- **å½“å‰çŠ¶æ€**ï¼šæ”¹åŠ¨æœªæäº¤ã€‚

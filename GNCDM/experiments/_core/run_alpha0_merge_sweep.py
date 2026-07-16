@@ -3,14 +3,15 @@
 
 同口径：Base + Ours(DNA) + Ours(LoRA)，选优指标 sel = mean(valid ACC_old, ACC_new)。
 合并目标：
+  incremental_result/alpha_sweep_math1_random_split.csv
   incremental_result/alpha_sweep_junyi_random_split.csv
   incremental_result/alpha_sweep_a0910_random_split.csv
 
 服务器运行（需 GPU；从 experiments/ 启动）：
   cd GNCDM/experiments
+  CUDA_VISIBLE_DEVICES=0 python _core/run_alpha0_merge_sweep.py --dataset math1
   CUDA_VISIBLE_DEVICES=0 python _core/run_alpha0_merge_sweep.py --dataset both
-  CUDA_VISIBLE_DEVICES=0 python _core/run_alpha0_merge_sweep.py --dataset junyi
-  CUDA_VISIBLE_DEVICES=0 python _core/run_alpha0_merge_sweep.py --dataset a0910
+  CUDA_VISIBLE_DEVICES=0 python _core/run_alpha0_merge_sweep.py --dataset all
 
 可选：
   --alpha 0.0          # 默认 0
@@ -39,6 +40,7 @@ from core.model import GNCDM
 import run_incremental_math1 as R
 
 JOBS = {
+    "math1": ("sweep_math1_random_alpha", "alpha_sweep_math1_random_split.csv"),
     "junyi": ("sweep_junyi_random_alpha", "alpha_sweep_junyi_random_split.csv"),
     "a0910": ("sweep_a0910_random_alpha", "alpha_sweep_a0910_random_split.csv"),
 }
@@ -89,6 +91,7 @@ def run_one_alpha(mod, alpha: float, device: torch.device, n_epoch: int) -> dict
             R.populate_buffers(m, c["log_old"], device),
             R.evaluate_buf(m, c["valid_old"], device),
         )[1],
+        select_metric="acc",
     )
     R.populate_buffers(base, c["log_old"], device)
     b_va = R.evaluate_buf(base, c["valid_old"], device)
@@ -96,6 +99,7 @@ def run_one_alpha(mod, alpha: float, device: torch.device, n_epoch: int) -> dict
 
     dna = mod.train_dna(base, c, device)
     dna_v_new = R.evaluate_buf(dna, c["valid_new"], device)
+    dna_t_old = R.evaluate_buf(dna, c["test_old"], device)
     dna_t_new = R.evaluate_buf(dna, c["test_new"], device)
 
     lora = mod.train_lora(base, c, device)
@@ -105,20 +109,41 @@ def run_one_alpha(mod, alpha: float, device: torch.device, n_epoch: int) -> dict
     mod.N_EPOCH = old_ep
 
     sel = 0.5 * (b_va["acc"] + dna_v_new["acc"])
-    row = {
-        "alpha": alpha,
-        "sel_DNA_validACC": round(sel, 4),
-        "Base_te_AUCold": b_te["auc"],
-        "Base_te_ACCold": b_te["acc"],
-        "DNA_te_AUCnew": dna_t_new["auc"],
-        "DNA_te_ACCnew": dna_t_new["acc"],
-        "DNA_te_F1new": dna_t_new["f1"],
-        "LoRA_te_AUCnew": lora_t_new["auc"],
-        "LoRA_te_ACCnew": lora_t_new["acc"],
-        "LoRA_te_F1new": lora_t_new["f1"],
-        "DNA_va_AUCnew": dna_v_new["auc"],
-        "LoRA_va_AUCnew": lora_v_new["auc"],
-    }
+    # math1 sweep CSV has extra Base_va / DNA_te_old columns; keep them when present.
+    if "math1" in mod.__name__:
+        row = {
+            "alpha": alpha,
+            "sel_DNA_validACC": round(sel, 4),
+            "Base_va_ACCold": b_va["acc"],
+            "DNA_va_ACCnew": dna_v_new["acc"],
+            "Base_te_AUCold": b_te["auc"],
+            "Base_te_ACCold": b_te["acc"],
+            "DNA_te_AUCold": dna_t_old["auc"],
+            "DNA_te_ACCold": dna_t_old["acc"],
+            "DNA_te_AUCnew": dna_t_new["auc"],
+            "DNA_te_ACCnew": dna_t_new["acc"],
+            "DNA_te_F1new": dna_t_new["f1"],
+            "LoRA_te_AUCnew": lora_t_new["auc"],
+            "LoRA_te_ACCnew": lora_t_new["acc"],
+            "LoRA_te_F1new": lora_t_new["f1"],
+            "DNA_va_AUCnew": dna_v_new["auc"],
+            "LoRA_va_AUCnew": lora_v_new["auc"],
+        }
+    else:
+        row = {
+            "alpha": alpha,
+            "sel_DNA_validACC": round(sel, 4),
+            "Base_te_AUCold": b_te["auc"],
+            "Base_te_ACCold": b_te["acc"],
+            "DNA_te_AUCnew": dna_t_new["auc"],
+            "DNA_te_ACCnew": dna_t_new["acc"],
+            "DNA_te_F1new": dna_t_new["f1"],
+            "LoRA_te_AUCnew": lora_t_new["auc"],
+            "LoRA_te_ACCnew": lora_t_new["acc"],
+            "LoRA_te_F1new": lora_t_new["f1"],
+            "DNA_va_AUCnew": dna_v_new["auc"],
+            "LoRA_va_AUCnew": lora_v_new["auc"],
+        }
     print(
         f"alpha={alpha:.2f} | sel={sel:.4f} | Base te ACCold={b_te['acc']:.4f} "
         f"| DNA te ACCnew={dna_t_new['acc']:.4f} | LoRA te ACCnew={lora_t_new['acc']:.4f}"
@@ -152,9 +177,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="补跑 alpha=0 并合并到 alpha_sweep CSV")
     parser.add_argument(
         "--dataset",
-        choices=["junyi", "a0910", "both"],
+        choices=["math1", "junyi", "a0910", "both", "all"],
         default="both",
-        help="要跑的数据集（默认 both）",
+        help="要跑的数据集（both=junyi+a0910；all=三者）",
     )
     parser.add_argument("--alpha", type=float, default=0.0, help="要补的 alpha（默认 0.0）")
     parser.add_argument("--device", type=str, default=None, help="如 cuda:0 / cpu；默认自动")
@@ -171,7 +196,12 @@ def main() -> None:
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    names = ["junyi", "a0910"] if args.dataset == "both" else [args.dataset]
+    if args.dataset == "all":
+        names = ["math1", "junyi", "a0910"]
+    elif args.dataset == "both":
+        names = ["junyi", "a0910"]
+    else:
+        names = [args.dataset]
     for name in names:
         mod_name, csv_name = JOBS[name]
         mod = importlib.import_module(mod_name)

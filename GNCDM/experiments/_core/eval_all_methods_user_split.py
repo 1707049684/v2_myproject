@@ -100,9 +100,9 @@ CLORA_LAMBDA_SWEEP = [0, 1, 10, 100, 1000, 10000]
 # ==========================================================================
 # 共享：support/query 划分（按用户切一次，Ours 与基线都用这份）
 # ==========================================================================
-def split_support_query(df):
+def split_support_query(df, *, split_seed=SPLIT_SEED, support_frac=SUPPORT_FRAC):
     support = df.groupby("user_id", group_keys=False).sample(
-        frac=SUPPORT_FRAC, random_state=SPLIT_SEED
+        frac=support_frac, random_state=split_seed
     )
     query = df.drop(support.index)
     return support, query
@@ -192,11 +192,11 @@ def evaluate_cd_metrics(model, eval_dataset, device):
     )
 
 
-def coldstart_eval(model, eval_pack, device):
+def coldstart_eval(model, eval_pack, device, *, seed=COLD_START_SEED):
     """Support/Query 冷启动：support 拟合 student_emb → query 的 old/new 上评测（无泄漏）。"""
     em = copy.deepcopy(model).to(device)
     embed_dim = em.item_emb.weight.shape[1]
-    torch.manual_seed(COLD_START_SEED)
+    torch.manual_seed(seed)
     em.student_emb = nn.Embedding(eval_pack["n_test_users"], embed_dim).to(device)
     for p in em.parameters():
         p.requires_grad = False
@@ -234,7 +234,7 @@ def baseline_tmd(baseline_student_emb, model, old_user_ids, embed_dim):
 # ==========================================================================
 # 数据准备：一次构建 Ours / 基线两套表示，共享同一份 support/query 划分
 # ==========================================================================
-def prepare(cfg, device):
+def prepare(cfg, device, *, support_query_seed=SPLIT_SEED, support_frac=SUPPORT_FRAC):
     df_train = pd.read_csv(cfg["train"])
     df_valid = pd.read_csv(cfg["valid"])
     df_test = pd.read_csv(cfg["test"])
@@ -258,8 +258,12 @@ def prepare(cfg, device):
     train_new = df_train[df_train["item_id"] >= n_item_old].copy()
 
     # === 一次性 support/query 划分（Ours 与基线共用，保证 query 行完全一致）===
-    sup_valid, qry_valid = split_support_query(df_valid)
-    sup_test, qry_test = split_support_query(df_test)
+    sup_valid, qry_valid = split_support_query(
+        df_valid, split_seed=support_query_seed, support_frac=support_frac
+    )
+    sup_test, qry_test = split_support_query(
+        df_test, split_seed=support_query_seed, support_frac=support_frac
+    )
     qry_valid_old = qry_valid[qry_valid["item_id"] < n_item_old].copy()
     qry_valid_new = qry_valid[qry_valid["item_id"] >= n_item_old].copy()
     qry_test_old = qry_test[qry_test["item_id"] < n_item_old].copy()
@@ -302,18 +306,31 @@ def prepare(cfg, device):
         y = torch.tensor(sub["score"].values, dtype=torch.long)
         return TensorDataset(x, y)
 
-    test_users = sorted(df_test["user_id"].unique().tolist())
-    user_remap = {u: i for i, u in enumerate(test_users)}
+    def _make_eval_pack(support, query_old, query_new):
+        users = sorted(
+            pd.concat([support["user_id"], query_old["user_id"], query_new["user_id"]]).unique()
+        )
+        user_remap = {user_id: index for index, user_id in enumerate(users)}
 
-    def _pack(df):
-        uidx = df["user_id"].map(user_remap).astype(int).values
-        x = torch.tensor(np.stack([uidx, df["item_id"].values], axis=1), dtype=torch.long)
-        y = torch.tensor(df["score"].values, dtype=torch.long)
-        return x, y
+        def _pack(frame):
+            uidx = frame["user_id"].map(user_remap).astype(int).values
+            x = torch.tensor(np.stack([uidx, frame["item_id"].values], axis=1), dtype=torch.long)
+            y = torch.tensor(frame["score"].values, dtype=torch.long)
+            return x, y
 
-    sup_test_x, sup_test_y = _pack(sup_test)
-    q_old_x, q_old_y = _pack(qry_test_old)
-    q_new_x, q_new_y = _pack(qry_test_new)
+        support_x, support_y = _pack(support)
+        query_old_x, query_old_y = _pack(query_old)
+        query_new_x, query_new_y = _pack(query_new)
+        return {
+            "n_test_users": len(users),
+            "support_x": support_x,
+            "support_y": support_y,
+            "query_old_x": query_old_x,
+            "query_old_y": query_old_y,
+            "query_new_x": query_new_x,
+            "query_new_y": query_new_y,
+        }
+
     base = {
         "train_old_ds": _ds(df_train, 0, n_item_old),
         "train_new_ds": _ds(df_train, n_item_old, n_item_total),
@@ -322,21 +339,18 @@ def prepare(cfg, device):
         "old_user_ids": torch.tensor(
             df_train[df_train["item_id"] < n_item_old]["user_id"].unique(), dtype=torch.long
         ),
-        "eval_pack": {
-            "n_test_users": len(test_users),
-            "support_x": sup_test_x,
-            "support_y": sup_test_y,
-            "query_old_x": q_old_x,
-            "query_old_y": q_old_y,
-            "query_new_x": q_new_x,
-            "query_new_y": q_new_y,
-        },
+        "valid_eval_pack": _make_eval_pack(sup_valid, qry_valid_old, qry_valid_new),
+        "eval_pack": _make_eval_pack(sup_test, qry_test_old, qry_test_new),
     }
     meta = {
         "n_user": n_user,
         "n_item_old": n_item_old,
         "n_know_old": n_know_old,
         "alpha": cfg["alpha"],
+        "support_query_seed": support_query_seed,
+        "support_frac": support_frac,
+        "n_query_old": len(qry_test_old),
+        "n_query_new": len(qry_test_new),
     }
     return ours, base, meta
 
@@ -525,13 +539,15 @@ def _brow(method, old_m, new_m, tmd):
     }
 
 
-def run_ewc(base, device):
+def run_ewc(base, device, *, seed=42, lambdas=None, eval_pack=None, coldstart_seed=COLD_START_SEED):
     from avalanche.training.supervised import EWC
 
     print("\n=== Baseline EWC λ 扫描 ===")
+    eval_pack = base["eval_pack"] if eval_pack is None else eval_pack
+    lambdas = EWC_LAMBDA_SWEEP if lambdas is None else list(lambdas)
     rows = []
-    for lam in EWC_LAMBDA_SWEEP:
-        set_seed(42)
+    for lam in lambdas:
+        set_seed(seed)
         model = CognitiveBackbone(base["num_students"], base["num_items"], EMBED_DIM).to(device)
         strat = EWC(
             model,
@@ -549,7 +565,7 @@ def run_ewc(base, device):
             strat.train(exp)
             if exp.current_experience == 0:
                 b0 = model.student_emb.weight.data.clone().cpu()
-        old_m, new_m = coldstart_eval(model, base["eval_pack"], device)
+        old_m, new_m = coldstart_eval(model, eval_pack, device, seed=coldstart_seed)
         r = _brow(
             f"EWC (lambda={lam})",
             old_m,
@@ -562,11 +578,12 @@ def run_ewc(base, device):
     return rows
 
 
-def run_der(base, device):
+def run_der(base, device, *, seed=42, eval_pack=None, coldstart_seed=COLD_START_SEED):
     from avalanche.training.supervised import DER
 
     print("\n=== Baseline DER++ ===")
-    set_seed(42)
+    eval_pack = base["eval_pack"] if eval_pack is None else eval_pack
+    set_seed(seed)
     model = CognitiveBackbone(base["num_students"], base["num_items"], EMBED_DIM).to(device)
     strat = DER(
         model,
@@ -585,7 +602,7 @@ def run_der(base, device):
         strat.train(exp)
         if exp.current_experience == 0:
             b0 = model.student_emb.weight.data.clone().cpu()
-    old_m, new_m = coldstart_eval(model, base["eval_pack"], device)
+    old_m, new_m = coldstart_eval(model, eval_pack, device, seed=coldstart_seed)
     r = _brow(
         f"DER++ (mem={MEM_SIZE})",
         old_m,
@@ -612,22 +629,26 @@ def _train_phase(model, dataset, epochs, device, lambda_ortho=None):
             optimizer.step()
 
 
-def run_clora(base, device):
+def run_clora(
+    base, device, *, seed=42, lambdas=None, eval_pack=None, coldstart_seed=COLD_START_SEED
+):
     print("\n=== Baseline C-LoRA λ_ortho 扫描 ===")
-    set_seed(42)
+    eval_pack = base["eval_pack"] if eval_pack is None else eval_pack
+    set_seed(seed)
     base_model = CognitiveBackbone(base["num_students"], base["num_items"], EMBED_DIM).to(device)
     _train_phase(base_model, base["train_old_ds"], BASE_EPOCHS, device, lambda_ortho=None)
     base_state = copy.deepcopy(base_model.state_dict())
+    lambdas = CLORA_LAMBDA_SWEEP if lambdas is None else list(lambdas)
     rows = []
-    for lam in CLORA_LAMBDA_SWEEP:
-        set_seed(42)
+    for lam in lambdas:
+        set_seed(seed)
         model = CognitiveBackbone(base["num_students"], base["num_items"], EMBED_DIM).to(device)
         model.load_state_dict(base_state)
         b0 = model.student_emb.weight.data.clone().cpu()
         inject_lora(model)
         model.to(device)
         _train_phase(model, base["train_new_ds"], CLORA_EPOCHS, device, lambda_ortho=float(lam))
-        old_m, new_m = coldstart_eval(model, base["eval_pack"], device)
+        old_m, new_m = coldstart_eval(model, eval_pack, device, seed=coldstart_seed)
         r = _brow(
             f"C-LoRA (lambda={lam})",
             old_m,
@@ -642,6 +663,97 @@ def run_clora(base, device):
 
 def _pick_balanced(rows):
     return max(rows, key=lambda r: (r["AUC_old"] + r["AUC_new"]) / 2.0)
+
+
+def select_baselines_on_validation(base, device, *, seed=42, coldstart_seed=COLD_START_SEED):
+    """Tune EWC/C-LoRA on valid support/query rows, then evaluate once on test.
+
+    The returned rows are intended for the formal per-seed workflow. Keeping
+    test selection outside this helper avoids the historic test-set lambda
+    selection used by the legacy wide-table writer.
+    """
+
+    valid_pack = base["valid_eval_pack"]
+    test_pack = base["eval_pack"]
+    ewc_valid = run_ewc(
+        base,
+        device,
+        seed=seed,
+        eval_pack=valid_pack,
+        coldstart_seed=coldstart_seed,
+    )
+    ewc_lambda = _pick_balanced(ewc_valid)["lambda"]
+    ewc_test = run_ewc(
+        base,
+        device,
+        seed=seed,
+        lambdas=[ewc_lambda],
+        eval_pack=test_pack,
+        coldstart_seed=coldstart_seed,
+    )[0]
+    ewc_test["selected_lambda"] = ewc_lambda
+    ewc_test["selection_source"] = "validation_balanced_auc"
+
+    clora_valid = run_clora(
+        base,
+        device,
+        seed=seed,
+        eval_pack=valid_pack,
+        coldstart_seed=coldstart_seed,
+    )
+    clora_lambda = _pick_balanced(clora_valid)["lambda"]
+    clora_test = run_clora(
+        base,
+        device,
+        seed=seed,
+        lambdas=[clora_lambda],
+        eval_pack=test_pack,
+        coldstart_seed=coldstart_seed,
+    )[0]
+    clora_test["selected_lambda"] = clora_lambda
+    clora_test["selection_source"] = "validation_balanced_auc"
+
+    der_test = run_der(
+        base,
+        device,
+        seed=seed,
+        eval_pack=test_pack,
+        coldstart_seed=coldstart_seed,
+    )
+    der_test["selection_source"] = "fixed_hyperparameters"
+    return [ewc_test, der_test, clora_test]
+
+
+def run_trial_for_statistics(
+    cfg,
+    device,
+    *,
+    train_seed=42,
+    support_query_seed=SPLIT_SEED,
+    support_frac=SUPPORT_FRAC,
+    deterministic=True,
+):
+    """Run one leakage-free user-split trial and return raw per-method rows.
+
+    EWC and C-LoRA choose lambda exclusively from validation support/query
+    rows. The test rows returned here are therefore appropriate inputs to the
+    paired statistical analysis workflow and are never merged into legacy
+    single-run summary tables.
+    """
+
+    set_seed(train_seed, deterministic=deterministic)
+    ours, base, meta = prepare(
+        cfg,
+        device,
+        support_query_seed=support_query_seed,
+        support_frac=support_frac,
+    )
+    ours_rows = run_ours(ours, meta, device)
+    coldstart_seed = int(train_seed) + 1_000_003
+    baseline_rows = select_baselines_on_validation(
+        base, device, seed=train_seed, coldstart_seed=coldstart_seed
+    )
+    return ours_rows + baseline_rows, meta
 
 
 # ==========================================================================

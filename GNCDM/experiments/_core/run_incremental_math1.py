@@ -17,6 +17,7 @@ random_split（预测口径）+ user_split（重构口径）两个划分各跑�
 
 import math
 import os
+import random
 import sys
 
 gncdm_dir = os.path.dirname(
@@ -39,10 +40,20 @@ SAVE_DIR = os.path.join(gncdm_dir, "incremental_result")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 
-def set_seed(seed=42):
+def set_seed(seed=42, *, deterministic=False):
+    """Seed every RNG used by the experiment pipeline.
+
+    ``deterministic`` is opt-in because some CUDA/Avalanche operations can be
+    slower or unsupported in deterministic mode. Statistical trial runners set
+    it to ``True`` and record that choice in their protocol manifest.
+    """
+    random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    if deterministic and torch.backends.cudnn.is_available():
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 class SampleSet(Dataset):
@@ -394,6 +405,7 @@ def run_experiment(
     alpha=0.8,
     run_strategies=None,
     strategy_select_metric="acc",
+    output_path=None,
 ):
     """在一个数据划分上跑 6 策略。数据集维度/新概念由参数传入（math1 与 a0910 共用）。
     mode='buf'：random-split → forward_using_buf 无泄漏预测口径（论文 RQ2）。
@@ -565,7 +577,8 @@ def run_experiment(
     print("\n=== 6. Naive FT (NFT) ===")
     run_strategy(base, "Naive FT (NFT)", **specs["Naive FT (NFT)"], **rs_kw)
 
-    out = os.path.join(SAVE_DIR, f"incremental_results_{split_name}.csv")
+    out = output_path or os.path.join(SAVE_DIR, f"incremental_results_{split_name}.csv")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     pd.DataFrame(results).to_csv(out, index=False)
     print(f"\n[{split_name}] 结果已写入 {out}")
     return results

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Alpha sensitivity on random_split (Math1 / junyi / a0910).
+"""Sensitivity analysis of the mixing coefficient α on random splits.
 
-Reads sweep CSVs under incremental_result/, plots the selection metric
-sel_DNA_validACC = DNA mean(valid ACC_old, ACC_new) vs alpha, and marks
-the chosen operating point. Overlay test DNA_te_ACCnew for reference.
+Reads Math1 / junyi / a0910 sweep CSVs under incremental_result/, plots
+sel_DNA_validACC = DNA mean(valid ACC_old, ACC_new) vs alpha, marks the
+chosen operating point, and overlays DNA test ACC_new.
 
-Run:  cd GNCDM/plot && python plot_alpha_sensitivity_random.py
-Out:  incremental_result/alpha_sensitivity_random_split.{png,pdf,svg}
+Location: GNCDM/plot/plot_alpha_sensitivity_random.py
+Run:      cd GNCDM/plot && python plot_alpha_sensitivity_random.py
+Out:      incremental_result/alpha_sensitivity_random_split.{png,pdf,svg}
 """
 
 from __future__ import annotations
@@ -94,7 +95,7 @@ def plot_panel(ax, title: str, df: pd.DataFrame, chosen_alpha: float, show_legen
             markersize=3.5,
             linewidth=1.2,
             linestyle="--",
-            label="DNA test ACC_new",
+            label="CLEAN-Full test ACC_new",
             zorder=2,
         )
 
@@ -131,7 +132,7 @@ def main() -> None:
             axes[i].set_ylabel("Accuracy")
 
     fig.suptitle(
-        "Alpha sensitivity (random_split): DNA mean(valid ACC_old, ACC_new)",
+        r"Sensitivity analysis of the mixing coefficient $\alpha$ on random splits",
         fontsize=9.5,
         y=1.02,
     )

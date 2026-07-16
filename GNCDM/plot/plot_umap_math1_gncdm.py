@@ -26,6 +26,13 @@ import numpy as np
 import pandas as pd
 import torch
 import umap
+from matplotlib.colors import LinearSegmentedColormap
+
+# Score-rate colormap: red (low) → white → green #42AC5A (high).
+SCORE_CMAP = LinearSegmentedColormap.from_list(
+    "score_rg",
+    ["#B64342", "#F6CFCB", "#FFFFFF", "#A8D5B5", "#42AC5A"],
+)
 
 PLOT_DIR = Path(__file__).resolve().parent
 GNCDM_DIR = PLOT_DIR.parent
@@ -269,13 +276,40 @@ def umap_xy(theta: np.ndarray, xy_path: Path, reuse: bool) -> np.ndarray:
     return xy
 
 
+def align_east_west(xy: np.ndarray, score: np.ndarray) -> np.ndarray:
+    """Rotate 2D embedding so score-rate varies mainly along +x (east–west).
+
+    After rotation, flip so higher score rate lies on the right
+    (left red / low → right green / high).
+    """
+    xy = xy.astype(np.float64, copy=True)
+    # Direction of steepest score change via least-squares: score ≈ a·x + b·y + c
+    A = np.column_stack([xy, np.ones(len(xy))])
+    coef, *_ = np.linalg.lstsq(A, score, rcond=None)
+    vx, vy = coef[0], coef[1]
+    norm = np.hypot(vx, vy)
+    if norm < 1e-12:
+        return xy
+    # Angle that maps (vx, vy) onto the +x axis.
+    ang = np.arctan2(vy, vx)
+    c, s = np.cos(-ang), np.sin(-ang)
+    rot = np.array([[c, -s], [s, c]])
+    xy = xy @ rot.T
+    # High score on the right → corr(x, score) > 0
+    if np.corrcoef(xy[:, 0], score)[0, 1] < 0:
+        xy[:, 0] *= -1
+    # Vertical flip (upside-down) for a more uniform panel layout.
+    xy[:, 1] *= -1
+    return xy
+
+
 def draw_panel(ax, xy, score, title):
     sc = ax.scatter(
         xy[:, 0],
         xy[:, 1],
         c=score,
-        # Paper Fig.10: blue = higher score rate, red = lower (matplotlib RdBu).
-        cmap="RdBu",
+        # High score rate = green (#42AC5A); low = red.
+        cmap=SCORE_CMAP,
         s=5,
         alpha=0.85,
         linewidths=0,
@@ -298,7 +332,8 @@ def plot_panels(panel_data: list[tuple], out_stem: Path) -> None:
         axes = [axes]
     sc = None
     for ax, (xy, score, title) in zip(axes, panel_data):
-        sc = draw_panel(ax, xy, score, title)
+        xy_ew = align_east_west(xy, score)
+        sc = draw_panel(ax, xy_ew, score, title)
     cax = fig.add_axes([0.93, 0.18, 0.012, 0.64])
     cb = fig.colorbar(sc, cax=cax)
     cb.set_label("Score rate", fontsize=7)
