@@ -236,13 +236,15 @@ def run_xder(
     buf_batch=256,
     history=None,
     history_eval_fn=None,
+    seed=42,
+    write_artifacts=True,
 ):
     """在一个数据集的 random_split 上跑 X-DER,产出单行结果(列与 all_methods 一致)。
 
     history/history_eval_fn：透传给 train_xder，画收敛曲线用，不影响原有训练/选优行为。
     """
     print(f"\n{'#' * 70}\n# X-DER  {split_name}  (G-NCDM 骨干, mode=buf)\n{'#' * 70}")
-    set_seed(42)
+    set_seed(seed)
 
     df_train = pd.read_csv(train_path)
     df_valid = pd.read_csv(valid_path)
@@ -306,7 +308,7 @@ def run_xder(
     base_theta_old = base.get_Theta_buf().clone()  # RD 参照
 
     # ---- 记忆库(存 raw logit) ----
-    buffer = build_buffer(base, train_old, log_old, device, buffer_size)
+    buffer = build_buffer(base, train_old, log_old, device, buffer_size, seed=seed)
 
     # ---- Task2: 扩容(共享网络全参可训) + X-DER 训练 ----
     print("\n=== Task2: X-DER (logit-KD + BCE_buf + anti-activation + memory revision) ===")
@@ -355,6 +357,8 @@ def run_xder(
         "F1_old": r_old["f1"],
         "F1_new": r_new["f1"],
         "RD": tmd,
+        "mem_size": buffer_size,
+        "selection_source": "fixed_from_existing_result",
     }
     print(
         f"\n  [{method}]\n"
@@ -363,34 +367,35 @@ def run_xder(
         f"    RD={tmd:.4f}（与 Ours 同 θ 空间,可直接对比）"
     )
 
-    os.makedirs(SAVE_DIR, exist_ok=True)
-    csv_path = os.path.join(SAVE_DIR, f"xder_{ds_name}_random_split.csv")
-    pd.DataFrame([row], columns=COLS).to_csv(csv_path, index=False)
+    if write_artifacts:
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        csv_path = os.path.join(SAVE_DIR, f"xder_{ds_name}_random_split.csv")
+        pd.DataFrame([row], columns=COLS).to_csv(csv_path, index=False)
 
-    def _fmt(x):
-        return x if isinstance(x, str) else f"{x:.4f}"
+        def _fmt(x):
+            return x if isinstance(x, str) else f"{x:.4f}"
 
-    lines = [
-        "| " + " | ".join(COLS) + " |",
-        "|" + "|".join(["---"] * len(COLS)) + "|",
-        "| " + " | ".join([row["Method"]] + [_fmt(row[c]) for c in COLS[1:]]) + " |",
-    ]
-    note = (
-        f"\n*口径*:{ds_name} random_split,G-NCDM 骨干,buf 无泄漏预测,与 Ours 主表逐行可比。\n"
-        f"*X-DER 损失*:L_BCE(new)+α·L_KD(logit)+β·L_BCE_buf+λ·L_Future;memory revision(γ clamp)。\n"
-        f"*超参*:mem={buffer_size}, α={alpha_kd}, β={beta_buf}, λ={lam_future}, γ={gamma}, "
-        f"alpha={alpha}, epochs={n_epoch}。\n"
-        "*RD*:与 Ours 同在 G-NCDM 概念 θ 空间(calculate_rd 取前 K_old 列),可与 Ours 行直接比。\n"
-        "*L_Future*:CDM 无类槽,以 ΔK 潜通道反激活 mean(relu(θ_ΔK)^2) 再诠释 X-DER future-prep,"
-        "论文须注明为 CDM 适配而非原类头机制。\n"
-    )
-    with open(
-        os.path.join(SAVE_DIR, f"xder_{ds_name}_random_split.md"), "w", encoding="utf-8"
-    ) as f:
-        f.write("\n".join(lines) + "\n" + note)
+        lines = [
+            "| " + " | ".join(COLS) + " |",
+            "|" + "|".join(["---"] * len(COLS)) + "|",
+            "| " + " | ".join([row["Method"]] + [_fmt(row[c]) for c in COLS[1:]]) + " |",
+        ]
+        note = (
+            f"\n*口径*:{ds_name} random_split,G-NCDM 骨干,buf 无泄漏预测,与 Ours 主表逐行可比。\n"
+            f"*X-DER 损失*:L_BCE(new)+α·L_KD(logit)+β·L_BCE_buf+λ·L_Future;memory revision(γ clamp)。\n"
+            f"*超参*:mem={buffer_size}, α={alpha_kd}, β={beta_buf}, λ={lam_future}, γ={gamma}, "
+            f"alpha={alpha}, epochs={n_epoch}。\n"
+            "*RD*:与 Ours 同在 G-NCDM 概念 θ 空间(calculate_rd 取前 K_old 列),可与 Ours 行直接比。\n"
+            "*L_Future*:CDM 无类槽,以 ΔK 潜通道反激活 mean(relu(θ_ΔK)^2) 再诠释 X-DER future-prep,"
+            "论文须注明为 CDM 适配而非原类头机制。\n"
+        )
+        with open(
+            os.path.join(SAVE_DIR, f"xder_{ds_name}_random_split.md"), "w", encoding="utf-8"
+        ) as f:
+            f.write("\n".join(lines) + "\n" + note)
 
-    print(f"\n>>> 写入 {csv_path}")
-    print("    合并进 all_methods 主表请把该行交给我（或人工 append）。")
+        print(f"\n>>> 写入 {csv_path}")
+        print("    合并进 all_methods 主表请把该行交给我（或人工 append）。")
     return row
 
 
@@ -399,10 +404,8 @@ _SUPPORT_FRAC = 0.5
 _SPLIT_SEED = 7
 
 
-def _split_sq(df):
-    sup = df.groupby("user_id", group_keys=False).sample(
-        frac=_SUPPORT_FRAC, random_state=_SPLIT_SEED
-    )
+def _split_sq(df, *, frac=_SUPPORT_FRAC, seed=_SPLIT_SEED):
+    sup = df.groupby("user_id", group_keys=False).sample(frac=frac, random_state=seed)
     return sup, df.drop(sup.index)
 
 
@@ -428,6 +431,10 @@ def run_xder_user_split(
     lr=1e-3,
     batch_size=256,
     buf_batch=256,
+    seed=42,
+    support_query_seed=_SPLIT_SEED,
+    support_frac=_SUPPORT_FRAC,
+    artifact_dir=None,
 ):
     """user_split 口径的 X-DER（G-NCDM 骨干）。
 
@@ -436,7 +443,8 @@ def run_xder_user_split(
     产物：incremental_result/xder_{ds_name}_user_split.{csv,md}（单行，列同 all_methods）。
     """
     print(f"\n{'#' * 70}\n# X-DER  {split_name}  (G-NCDM 骨干, user_split 口径)\n{'#' * 70}")
-    set_seed(42)
+    set_seed(seed)
+    artifact_dir = SAVE_DIR if artifact_dir is None else str(artifact_dir)
 
     df_train = pd.read_csv(train_path)
     df_valid = pd.read_csv(valid_path)
@@ -461,8 +469,8 @@ def run_xder_user_split(
     train_new = df_train[df_train["item_id"] >= n_item_old].copy()
 
     # support/query 划分（valid + test 各划一次，与 eval_all_methods_user_split 同口径）
-    sup_valid, qry_valid = _split_sq(df_valid)
-    sup_test, qry_test = _split_sq(df_test)
+    sup_valid, qry_valid = _split_sq(df_valid, frac=support_frac, seed=support_query_seed)
+    sup_test, qry_test = _split_sq(df_test, frac=support_frac, seed=support_query_seed)
     qry_valid_old = qry_valid[qry_valid["item_id"] < n_item_old].copy()
     qry_valid_comb = qry_valid.copy()
     qry_test_old = qry_test[qry_test["item_id"] < n_item_old].copy()
@@ -512,7 +520,7 @@ def run_xder_user_split(
     base_theta_old = base.get_Theta_buf().clone()
 
     # 记忆库（raw logit，与 random_split 版相同）
-    buffer = build_buffer(base, train_old, log_old, device, buffer_size)
+    buffer = build_buffer(base, train_old, log_old, device, buffer_size, seed=seed)
 
     # Task2：扩容 + X-DER 训练，valid 用 evaluate_recon（support/query）
     print("\n=== Task2: X-DER (user_split eval，logit-KD + BCE_buf + anti-act + mem-revision) ===")
@@ -566,8 +574,8 @@ def run_xder_user_split(
         f"    RD={tmd:.4f}（与 Ours 同 θ 空间，可直接对比）"
     )
 
-    os.makedirs(SAVE_DIR, exist_ok=True)
-    csv_path = os.path.join(SAVE_DIR, f"xder_{ds_name}_user_split.csv")
+    os.makedirs(artifact_dir, exist_ok=True)
+    csv_path = os.path.join(artifact_dir, f"xder_{ds_name}_user_split.csv")
     pd.DataFrame([row], columns=COLS).to_csv(csv_path, index=False)
 
     def _fmt(x):
@@ -580,13 +588,15 @@ def run_xder_user_split(
     ]
     note = (
         f"\n*口径*：{ds_name} user_split，G-NCDM 骨干，support/query 留出"
-        f"（frac={_SUPPORT_FRAC}, seed={_SPLIT_SEED}），与 eval_all_methods_user_split 同口径。\n"
+        f"（frac={support_frac}, seed={support_query_seed}），与 eval_all_methods_user_split 同口径。\n"
         f"*X-DER 损失*：L_BCE(new)+α·L_KD(logit)+β·L_BCE_buf+λ·L_Future；memory revision(γ clamp)。\n"
         f"*超参*：mem={buffer_size}, α={alpha_kd}, β={beta_buf}, λ={lam_future}, γ={gamma}, "
         f"alpha={alpha}, epochs={n_epoch}。\n"
         "*RD*：与 Ours 同在 G-NCDM 概念 θ 空间（populate_buffers 取训练用户），可与 Ours 行直接比。\n"
     )
-    with open(os.path.join(SAVE_DIR, f"xder_{ds_name}_user_split.md"), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(artifact_dir, f"xder_{ds_name}_user_split.md"), "w", encoding="utf-8"
+    ) as f:
         f.write("\n".join(lines) + "\n" + note)
 
     print(f"\n>>> 写入 {csv_path}")
