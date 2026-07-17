@@ -358,7 +358,13 @@ def prepare(cfg, device, *, support_query_seed=SPLIT_SEED, support_frac=SUPPORT_
 # ==========================================================================
 # Ours：六策略（G-NCDM），support/query 评测（复用 evaluate_recon）
 # ==========================================================================
-def run_ours(ours, meta, device):
+def run_ours(ours, meta, device, run_strategies=None):
+    """Run Base plus the requested G-NCDM incremental strategies.
+
+    ``Base`` is always required as the common task-1 anchor.  Passing a set in
+    ``run_strategies`` avoids training unused ablations while preserving the
+    legacy all-strategies behavior for existing callers.
+    """
     n_user, alpha = meta["n_user"], meta["alpha"]
     n_item_old, n_know_old = ours["n_item_old"], ours["n_know_old"]
     n_item_new, n_know_new = ours["n_item_new"], ours["n_know_new"]
@@ -466,49 +472,61 @@ def run_ours(ours, meta, device):
         tmd = calculate_rd(base_theta_old.to(device), m.get_Theta_buf().to(device), n_know_old)
         record(name, final_old(m), final_new(m), tmd)
 
-    print("\n=== Ours-2. Ablated ===")
-    run_strategy(
-        "Ours-Ablated",
-        lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: list(m.parameters()),
-        ours["train_new"],
-        ours["qry_valid_new"],
-    )
-    print("\n=== Ours-3. Dynamic DNA ===")
-    run_strategy(
-        "Ours (Dynamic DNA)",
-        lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
-        ours["train_new"],
-        ours["qry_valid_new"],
-        mask_agg_old=True,
-    )
-    print("\n=== Ours-4. LoRA ===")
-    run_strategy(
-        "Ours (LoRA)",
-        lambda m: m.expand_topology_lora(
-            delta_M=n_item_new, delta_K=n_know_new, Q_expanded=Q_expanded, M_old=n_item_old, rank=16
-        ),
-        lora_params,
-        ours["train_new"],
-        ours["qry_valid_new"],
-    )
-    print("\n=== Ours-5. Full Replay Oracle ===")
-    run_strategy(
-        "Full Replay Oracle",
-        lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: list(m.parameters()),
-        pd.concat([ours["train_old"], ours["train_new"]], ignore_index=True),
-        ours["qry_valid"],
-    )
-    print("\n=== Ours-6. Naive FT ===")
-    run_strategy(
-        "Naive FT (NFT)",
-        lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
-        lambda m: list(m.parameters()),
-        ours["train_new"],
-        ours["qry_valid_new"],
-    )
+    def is_requested(name):
+        return run_strategies is None or name in run_strategies
+
+    if is_requested("Ours-Ablated"):
+        print("\n=== Ours-2. Ablated ===")
+        run_strategy(
+            "Ours-Ablated",
+            lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
+            lambda m: list(m.parameters()),
+            ours["train_new"],
+            ours["qry_valid_new"],
+        )
+    if is_requested("Ours (Dynamic DNA)"):
+        print("\n=== Ours-3. Dynamic DNA ===")
+        run_strategy(
+            "Ours (Dynamic DNA)",
+            lambda m: m.expand_topology(n_item_new, n_know_new, Q_expanded),
+            lambda m: new_params(m) + [m.theta_agg_mat.weight, m.psi_agg_mat.weight],
+            ours["train_new"],
+            ours["qry_valid_new"],
+            mask_agg_old=True,
+        )
+    if is_requested("Ours (LoRA)"):
+        print("\n=== Ours-4. LoRA ===")
+        run_strategy(
+            "Ours (LoRA)",
+            lambda m: m.expand_topology_lora(
+                delta_M=n_item_new,
+                delta_K=n_know_new,
+                Q_expanded=Q_expanded,
+                M_old=n_item_old,
+                rank=16,
+            ),
+            lora_params,
+            ours["train_new"],
+            ours["qry_valid_new"],
+        )
+    if is_requested("Full Replay Oracle"):
+        print("\n=== Ours-5. Full Replay Oracle ===")
+        run_strategy(
+            "Full Replay Oracle",
+            lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
+            lambda m: list(m.parameters()),
+            pd.concat([ours["train_old"], ours["train_new"]], ignore_index=True),
+            ours["qry_valid"],
+        )
+    if is_requested("Naive FT (NFT)"):
+        print("\n=== Ours-6. Naive FT ===")
+        run_strategy(
+            "Naive FT (NFT)",
+            lambda m: m.full_replay_oracle_expand_topology(n_item_new, n_know_new, Q_expanded),
+            lambda m: list(m.parameters()),
+            ours["train_new"],
+            ours["qry_valid_new"],
+        )
     return rows
 
 
@@ -578,7 +596,15 @@ def run_ewc(base, device, *, seed=42, lambdas=None, eval_pack=None, coldstart_se
     return rows
 
 
-def run_der(base, device, *, seed=42, eval_pack=None, coldstart_seed=COLD_START_SEED):
+def run_der(
+    base,
+    device,
+    *,
+    seed=42,
+    eval_pack=None,
+    coldstart_seed=COLD_START_SEED,
+    mem_size=MEM_SIZE,
+):
     from avalanche.training.supervised import DER
 
     print("\n=== Baseline DER++ ===")
@@ -589,7 +615,7 @@ def run_der(base, device, *, seed=42, eval_pack=None, coldstart_seed=COLD_START_
         model,
         optim.Adam(model.parameters(), lr=LR),
         nn.CrossEntropyLoss(),
-        mem_size=MEM_SIZE,
+        mem_size=mem_size,
         alpha=DER_ALPHA,
         beta=DER_BETA,
         train_mb_size=TRAIN_MB_SIZE,
@@ -604,11 +630,12 @@ def run_der(base, device, *, seed=42, eval_pack=None, coldstart_seed=COLD_START_
             b0 = model.student_emb.weight.data.clone().cpu()
     old_m, new_m = coldstart_eval(model, eval_pack, device, seed=coldstart_seed)
     r = _brow(
-        f"DER++ (mem={MEM_SIZE})",
+        f"DER++ (mem={mem_size})",
         old_m,
         new_m,
         baseline_tmd(b0, model, base["old_user_ids"], EMBED_DIM),
     )
+    r["mem_size"] = mem_size
     print(f"  DER++: AUC_old={r['AUC_old']:.4f} AUC_new={r['AUC_new']:.4f}")
     return r
 
@@ -724,6 +751,60 @@ def select_baselines_on_validation(base, device, *, seed=42, coldstart_seed=COLD
     return [ewc_test, der_test, clora_test]
 
 
+def run_fixed_baselines(
+    base,
+    device,
+    *,
+    seed=42,
+    ewc_lambda,
+    der_mem_size=MEM_SIZE,
+    clora_lambda=None,
+    coldstart_seed=COLD_START_SEED,
+):
+    """Run only preselected baseline hyperparameters without any lambda sweep."""
+
+    test_pack = base["eval_pack"]
+    rows = []
+    if ewc_lambda is not None:
+        ewc_row = run_ewc(
+            base,
+            device,
+            seed=seed,
+            lambdas=[ewc_lambda],
+            eval_pack=test_pack,
+            coldstart_seed=coldstart_seed,
+        )[0]
+        ewc_row["selected_lambda"] = ewc_lambda
+        ewc_row["selection_source"] = "fixed_from_existing_result"
+        rows.append(ewc_row)
+
+    if der_mem_size is not None:
+        der_row = run_der(
+            base,
+            device,
+            seed=seed,
+            eval_pack=test_pack,
+            coldstart_seed=coldstart_seed,
+            mem_size=der_mem_size,
+        )
+        der_row["selection_source"] = "fixed_from_existing_result"
+        rows.append(der_row)
+
+    if clora_lambda is not None:
+        clora_row = run_clora(
+            base,
+            device,
+            seed=seed,
+            lambdas=[clora_lambda],
+            eval_pack=test_pack,
+            coldstart_seed=coldstart_seed,
+        )[0]
+        clora_row["selected_lambda"] = clora_lambda
+        clora_row["selection_source"] = "fixed_from_existing_result"
+        rows.append(clora_row)
+    return rows
+
+
 def run_trial_for_statistics(
     cfg,
     device,
@@ -732,13 +813,14 @@ def run_trial_for_statistics(
     support_query_seed=SPLIT_SEED,
     support_frac=SUPPORT_FRAC,
     deterministic=True,
+    fixed_baseline_config=None,
+    ours_strategies=None,
 ):
     """Run one leakage-free user-split trial and return raw per-method rows.
 
-    EWC and C-LoRA choose lambda exclusively from validation support/query
-    rows. The test rows returned here are therefore appropriate inputs to the
-    paired statistical analysis workflow and are never merged into legacy
-    single-run summary tables.
+    When ``fixed_baseline_config`` is provided, EWC/C-LoRA use its preselected
+    values directly and no lambda sweep is run. Otherwise the legacy formal
+    path selects lambdas on validation support/query rows.
     """
 
     set_seed(train_seed, deterministic=deterministic)
@@ -748,11 +830,22 @@ def run_trial_for_statistics(
         support_query_seed=support_query_seed,
         support_frac=support_frac,
     )
-    ours_rows = run_ours(ours, meta, device)
+    ours_rows = run_ours(ours, meta, device, run_strategies=ours_strategies)
     coldstart_seed = int(train_seed) + 1_000_003
-    baseline_rows = select_baselines_on_validation(
-        base, device, seed=train_seed, coldstart_seed=coldstart_seed
-    )
+    if fixed_baseline_config is None:
+        baseline_rows = select_baselines_on_validation(
+            base, device, seed=train_seed, coldstart_seed=coldstart_seed
+        )
+    else:
+        baseline_rows = run_fixed_baselines(
+            base,
+            device,
+            seed=train_seed,
+            ewc_lambda=fixed_baseline_config["ewc_lambda"],
+            der_mem_size=fixed_baseline_config["der_mem_size"],
+            clora_lambda=fixed_baseline_config.get("clora_lambda"),
+            coldstart_seed=coldstart_seed,
+        )
     return ours_rows + baseline_rows, meta
 
 

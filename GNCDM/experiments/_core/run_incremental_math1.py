@@ -562,20 +562,28 @@ def run_experiment(
         run_strategies=run_strategies,
     )
 
-    print("\n=== 2. Ours-Ablated ===")
-    run_strategy(base, "Ours-Ablated", **specs["Ours-Ablated"], **rs_kw)
+    def is_requested(name):
+        return run_strategies is None or name in run_strategies
 
-    print("\n=== 3. Ours (Dynamic DNA) ===")
-    run_strategy(base, "Ours (Dynamic DNA)", **specs["Ours (Dynamic DNA)"], **rs_kw)
+    if is_requested("Ours-Ablated"):
+        print("\n=== 2. Ours-Ablated ===")
+        run_strategy(base, "Ours-Ablated", **specs["Ours-Ablated"], **rs_kw)
 
-    print("\n=== 4. Ours (LoRA) ===")
-    run_strategy(base, "Ours (LoRA)", **specs["Ours (LoRA)"], **rs_kw)
+    if is_requested("Ours (Dynamic DNA)"):
+        print("\n=== 3. Ours (Dynamic DNA) ===")
+        run_strategy(base, "Ours (Dynamic DNA)", **specs["Ours (Dynamic DNA)"], **rs_kw)
 
-    print("\n=== 5. Full Replay Oracle ===")
-    run_strategy(base, "Full Replay Oracle", **specs["Full Replay Oracle"], **rs_kw)
+    if is_requested("Ours (LoRA)"):
+        print("\n=== 4. Ours (LoRA) ===")
+        run_strategy(base, "Ours (LoRA)", **specs["Ours (LoRA)"], **rs_kw)
 
-    print("\n=== 6. Naive FT (NFT) ===")
-    run_strategy(base, "Naive FT (NFT)", **specs["Naive FT (NFT)"], **rs_kw)
+    if is_requested("Full Replay Oracle"):
+        print("\n=== 5. Full Replay Oracle ===")
+        run_strategy(base, "Full Replay Oracle", **specs["Full Replay Oracle"], **rs_kw)
+
+    if is_requested("Naive FT (NFT)"):
+        print("\n=== 6. Naive FT (NFT) ===")
+        run_strategy(base, "Naive FT (NFT)", **specs["Naive FT (NFT)"], **rs_kw)
 
     out = output_path or os.path.join(SAVE_DIR, f"incremental_results_{split_name}.csv")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)

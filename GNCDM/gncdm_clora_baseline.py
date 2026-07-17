@@ -60,11 +60,12 @@ SAVE_DIR = os.path.join(THIS_DIR, "incremental_result")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # ===== 选择数据集（math1/junyi 可本地快速验证；a0910 建议 GPU 服务器）=====
-# 优先级：命令行参数 > 环境变量 GNCDM_CLORA_DATASET > 默认 "math1"。
-#   python gncdm_clora_baseline.py a0910      # 服务器跑 a0910，无需改文件
-#   python gncdm_clora_baseline.py junyi
-DATASET = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GNCDM_CLORA_DATASET", "math1")
-assert DATASET in ("math1", "a0910", "junyi"), f"未知 DATASET={DATASET}（应为 math1 / a0910 / junyi）"
+# 导入时只读取环境变量，避免将其他脚本的命令行参数（如 ``--dataset``）误当成数据集名。
+# 直接运行本文件时的命令行数据集选择在底部 ``__main__`` 块处理。
+DATASET = os.environ.get("GNCDM_CLORA_DATASET", "math1")
+assert DATASET in ("math1", "a0910", "junyi"), (
+    f"未知 DATASET={DATASET}（应为 math1 / a0910 / junyi）"
+)
 
 CONFIGS = {
     "math1": {
@@ -119,10 +120,17 @@ def _load_junyi_config():
     }
 
 
-if DATASET == "junyi":
-    _junyi_cfg = _load_junyi_config()
-    assert _junyi_cfg is not None, f"未找到 junyi 数据（期望 {os.path.join(REPO_ROOT, 'data', 'junyi')}）"
-    CONFIGS["junyi"] = _junyi_cfg
+def _config_for_dataset(dataset):
+    if dataset not in ("math1", "a0910", "junyi"):
+        raise ValueError(f"未知 DATASET={dataset}（应为 math1 / a0910 / junyi）")
+    if dataset == "junyi" and dataset not in CONFIGS:
+        junyi_cfg = _load_junyi_config()
+        assert junyi_cfg is not None, (
+            f"未找到 junyi 数据（期望 {os.path.join(REPO_ROOT, 'data', 'junyi')}）"
+        )
+        CONFIGS[dataset] = junyi_cfg
+    return CONFIGS[dataset]
+
 
 USER_DIM, ITEM_DIM = 32, 32
 LR = 1e-3
@@ -290,7 +298,8 @@ def load_partition(cfg):
     df_test = remap_items(df_test, item_id_map)
     assert Q_full[:n_item_old, n_know_old:].sum() == 0, "旧题依赖了新概念，二分失败！"
     print(
-        f">>> [{DATASET}] 新概念={len(new_concepts)}/{n_know}, 旧题(Task0)={n_item_old} "
+        f">>> [{cfg.get('name', DATASET)}] 新概念={len(new_concepts)}/{n_know}, "
+        f"旧题(Task0)={n_item_old} "
         f"新题(Task1)={n_item - n_item_old}, 旧概念={n_know_old}"
     )
 
@@ -316,7 +325,7 @@ def _split_support_query(df, frac=0.5, seed=7):
     return sup, df.drop(sup.index)
 
 
-def load_partition_user_split(cfg):
+def load_partition_user_split(cfg, frac=0.5, seed=7):
     """user_split：需 valid；评测走 support/query（与 eval_all_methods_user_split 同口径）。"""
     df_train = pd.read_csv(cfg["train"])
     df_valid = pd.read_csv(cfg["valid"])
@@ -341,7 +350,7 @@ def load_partition_user_split(cfg):
 
     train_old = df_train[df_train["item_id"] < n_item_old].copy()
     train_new = df_train[df_train["item_id"] >= n_item_old].copy()
-    sup_test, qry_test = _split_support_query(df_test)
+    sup_test, qry_test = _split_support_query(df_test, frac=frac, seed=seed)
     qry_test_old = qry_test[qry_test["item_id"] < n_item_old].copy()
     qry_test_new = qry_test[qry_test["item_id"] >= n_item_old].copy()
     print(
@@ -362,12 +371,22 @@ def load_partition_user_split(cfg):
     }
 
 
-def run_user_split(cfg, device, split_tag="user_split", lambda_sweep=None):
+def run_user_split(
+    cfg,
+    device,
+    split_tag="user_split",
+    lambda_sweep=None,
+    *,
+    train_seed=42,
+    support_query_seed=7,
+    support_frac=0.5,
+    write_output=True,
+):
     """G-NCDM+C-LoRA · user_split · λ 扫描 · support/query 评测。"""
     sweep = LAMBDA_ORTHO_SWEEP if lambda_sweep is None else lambda_sweep
-    meta = load_partition_user_split(cfg)
+    meta = load_partition_user_split(cfg, frac=support_frac, seed=support_query_seed)
 
-    set_seed(42)
+    set_seed(train_seed)
     base = _new_model(cfg, meta, device)
     print(f"\n>>> Phase 1：Base（旧题，{BASE_EPOCHS} ep）...")
     train_real(
@@ -386,7 +405,7 @@ def run_user_split(cfg, device, split_tag="user_split", lambda_sweep=None):
     rows = []
     for lam in sweep:
         print(f"\n========== ortho_lambda = {lam} ==========")
-        set_seed(42)
+        set_seed(train_seed)
         model = _new_model(cfg, meta, device)
         model.load_state_dict(base_state)
         n_know_old = meta["n_know_old"]
@@ -435,10 +454,41 @@ def run_user_split(cfg, device, split_tag="user_split", lambda_sweep=None):
             f"新: AUC={r['AUC_new']:.4f} ACC={r['ACC_new']:.4f} | RD={r['RD']:.4f}"
         )
 
-    out = os.path.join(SAVE_DIR, f"clora_gncdm_lambda_sweep_{cfg.get('name', 'ds')}_{split_tag}.csv")
-    pd.DataFrame(rows).to_csv(out, index=False)
-    print(f"\n写入 {out}")
+    if write_output:
+        out = os.path.join(
+            SAVE_DIR, f"clora_gncdm_lambda_sweep_{cfg.get('name', 'ds')}_{split_tag}.csv"
+        )
+        pd.DataFrame(rows).to_csv(out, index=False)
+        print(f"\n写入 {out}")
     return rows
+
+
+def run_fixed_user_split(
+    cfg,
+    device,
+    *,
+    lambda_ortho,
+    seed,
+    support_query_seed=7,
+    support_frac=0.5,
+):
+    """Run exactly one preselected G-NCDM C-LoRA configuration for one seed."""
+
+    row = run_user_split(
+        cfg,
+        device,
+        lambda_sweep=[lambda_ortho],
+        train_seed=seed,
+        support_query_seed=support_query_seed,
+        support_frac=support_frac,
+        write_output=False,
+    )[0]
+    return {
+        "Method": f"C-LoRA-GNCDM (lambda={lambda_ortho:g})",
+        **row,
+        "selected_lambda": lambda_ortho,
+        "selection_source": "fixed_from_existing_result",
+    }
 
 
 def _new_model(cfg, meta, device):
@@ -468,8 +518,9 @@ def run_one_lambda(
     history=None,
     history_eval_fn=None,
     n_epoch=CLORA_EPOCHS,
+    seed=42,
 ):
-    set_seed(42)
+    set_seed(seed)
     model = _new_model(cfg, meta, device)
     model.load_state_dict(base_state)
     n_know_old = meta["n_know_old"]
@@ -525,13 +576,49 @@ def run_one_lambda(
     }
 
 
-def run_sweep():
-    cfg = CONFIGS[DATASET]
+def run_fixed_random_split(cfg, device, *, lambda_ortho, seed):
+    """Run exactly one preselected G-NCDM C-LoRA configuration for one seed."""
+
+    meta = load_partition(cfg)
+    set_seed(seed)
+    base = _new_model(cfg, meta, device)
+    print(f"\n>>> Phase 1：Base（旧题，{BASE_EPOCHS} ep；seed={seed}）...")
+    train_real(
+        base,
+        meta["train_old"],
+        meta["log_old_only"],
+        list(base.parameters()),
+        device,
+        n_epoch=BASE_EPOCHS,
+        desc="Base",
+    )
+    populate_buffers(base, meta["log_old_only"], device)
+    base_theta_ref = base.get_Theta_buf().clone()
+    base_state = copy.deepcopy(base.state_dict())
+    row = run_one_lambda(
+        cfg,
+        base_state,
+        base_theta_ref,
+        meta,
+        lambda_ortho,
+        device,
+        seed=seed,
+    )
+    return {
+        "Method": f"C-LoRA-GNCDM (lambda={lambda_ortho:g})",
+        **row,
+        "selected_lambda": lambda_ortho,
+        "selection_source": "fixed_from_existing_result",
+    }
+
+
+def run_sweep(dataset=DATASET):
+    cfg = _config_for_dataset(dataset)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device = {device} | dataset = {DATASET}")
-    if device.type == "cpu" and DATASET == "a0910":
+    print(f"device = {device} | dataset = {dataset}")
+    if device.type == "cpu" and dataset == "a0910":
         print("[WARN] CPU 上 a0910(17746 题) 跑 G-NCDM+C-LoRA sweep 很慢，建议 GPU 服务器。")
-    if DATASET == "junyi":
+    if dataset == "junyi":
         print(f"[junyi] dims: n_user={cfg['n_user']} n_item={cfg['n_item']} n_know={cfg['n_know']}")
     print(
         f">>> 超参: rank={LORA_RANK} alpha={LORA_ALPHA} alpha_mix={cfg['alpha']} "
@@ -568,10 +655,10 @@ def run_sweep():
             f"新: AUC={r['AUC_new']:.4f} ACC={r['ACC_new']:.4f} | RD={r['RD']:.4f}"
         )
 
-    out = os.path.join(SAVE_DIR, f"clora_gncdm_lambda_sweep_{DATASET}_random_split.csv")
+    out = os.path.join(SAVE_DIR, f"clora_gncdm_lambda_sweep_{dataset}_random_split.csv")
     pd.DataFrame(rows).to_csv(out, index=False)
     print("\n" + "=" * 64)
-    print(f" G-NCDM + C-LoRA λ_ortho 扫描（{DATASET} random_split，最佳努力版）")
+    print(f" G-NCDM + C-LoRA λ_ortho 扫描（{dataset} random_split，最佳努力版）")
     print("=" * 64)
     print("\n| λ_ortho | AUC_old | AUC_new | ACC_old | ACC_new | F1_old | F1_new | RD(concept-θ) |")
     print("|---|---|---|---|---|---|---|---|")
@@ -586,4 +673,5 @@ def run_sweep():
 
 
 if __name__ == "__main__":
-    run_sweep()
+    cli_dataset = sys.argv[1] if len(sys.argv) > 1 else DATASET
+    run_sweep(cli_dataset)

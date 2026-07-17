@@ -22,6 +22,7 @@ Usage:
 
 import logging
 import os
+import random
 import sys
 
 import numpy as np
@@ -65,6 +66,20 @@ SUPPORT_FRAC, SPLIT_SEED = 0.5, 7  # user_split 与 eval_all_methods_user_split 
 ALPHA, TOLERANCE, BETA, WARMUP, EPOCH = 0.2, 0.2, 0.9, 0.0, 1
 MAX_U2I, MAX_I2U = 128, 64  # official a0910 caps (large item/user count)
 EVAL_BS = 256
+SUPPORT_FRAC = float(os.environ.get("ICD_SUPPORT_FRAC", str(SUPPORT_FRAC)))
+SPLIT_SEED = int(os.environ.get("ICD_SUPPORT_QUERY_SEED", str(SPLIT_SEED)))
+SEED = int(os.environ.get("ICD_TRAIN_SEED", "0"))
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+set_seed(SEED)
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"icd_out_{DATASET}")
 os.makedirs(OUT, exist_ok=True)
@@ -250,9 +265,7 @@ if SPLIT_TAG == "user_split":
     u2i, i2u = user2items(graph_df), item2users(graph_df)
     old_eval = qry_te[qry_te.item_id < n_item_old]
     new_eval = qry_te[qry_te.item_id >= n_item_old]
-    print(
-        f"user_split eval: support={len(sup_te)} | query old={len(old_eval)} new={len(new_eval)}"
-    )
+    print(f"user_split eval: support={len(sup_te)} | query old={len(old_eval)} new={len(new_eval)}")
 else:
     u2i, i2u = user2items(tr), item2users(tr)
     old_eval, new_eval = old_te, new_te
@@ -343,7 +356,8 @@ if SPLIT_TAG == "user_split":
         f"\n[NOTE] user_split ACC/F1 使用 support 上 Youden 阈值 t={_thr:.4f}（冷启动合法校准）；\n"
         f"  AUC/RMSE 与阈值无关。random_split 仍固定 t=0.5。写入主表时请在脚注说明此点。"
     )
-out_csv = os.path.join(OUT, f"icd_row_{DATASET}_{SPLIT_TAG}.csv")
+out_csv = os.environ.get("ICD_OUTPUT_CSV", os.path.join(OUT, f"icd_row_{DATASET}_{SPLIT_TAG}.csv"))
+os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
 pd.DataFrame([row]).to_csv(out_csv, index=False)
 # ready-to-append line (TMD column = RD) for all_methods_{DATASET}_random_split.csv
 print("\nappend to all_methods_%s_%s.csv (last col=TMD):" % (DATASET, SPLIT_TAG))

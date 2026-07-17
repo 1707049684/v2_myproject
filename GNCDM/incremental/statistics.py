@@ -452,6 +452,10 @@ def write_analysis_reports(
         "Positive oriented differences favor the target method; Holm correction is applied within each dataset/split/protocol family.",
         "",
     ]
+    if "inference_warning" in analysis.significance.columns:
+        warnings = analysis.significance["inference_warning"].dropna().unique().tolist()
+        if warnings:
+            report_lines.extend(["## Inference warning", "", *map(str, warnings), ""])
     if analysis.significance.empty:
         report_lines.append("No comparisons were requested.")
     else:
@@ -496,6 +500,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     parser.add_argument("--bootstrap-reps", type=int, default=DEFAULT_BOOTSTRAP_REPS)
     parser.add_argument("--bootstrap-seed", type=int, default=DEFAULT_BOOTSTRAP_SEED)
+    parser.add_argument(
+        "--strict-min-pairs",
+        action="store_true",
+        help="Reject a table whose seed count cannot attain a Holm-adjusted exact rejection.",
+    )
     parser.add_argument("--stem", default="significance")
     return parser.parse_args(argv)
 
@@ -506,6 +515,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.alpha, len(args.baselines) * len(args.metrics)
     )
     results = pd.read_csv(args.input)
+    inference_warning = None
+    observed_seeds = int(results["seed"].nunique())
+    if observed_seeds < minimum_pairs:
+        inference_warning = (
+            f"Exploratory analysis: {observed_seeds} paired seeds cannot attain a Holm-adjusted "
+            f"two-sided exact rejection across {len(args.baselines) * len(args.metrics)} planned "
+            f"hypotheses at alpha={args.alpha}. At least {minimum_pairs} seeds are required."
+        )
+        print(f"[STATISTICAL WARNING] {inference_warning}")
     analysis = analyze_paired_results(
         results,
         target=args.target,
@@ -514,8 +532,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         alpha=args.alpha,
         bootstrap_reps=args.bootstrap_reps,
         bootstrap_seed=args.bootstrap_seed,
-        minimum_pairs=minimum_pairs,
+        minimum_pairs=minimum_pairs if args.strict_min_pairs else None,
     )
+    if inference_warning:
+        analysis.significance["inference_warning"] = inference_warning
     paths = write_analysis_reports(analysis, args.output_dir, stem=args.stem)
     for label, path in paths.items():
         print(f"{label}: {path}")

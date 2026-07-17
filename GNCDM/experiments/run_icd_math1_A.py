@@ -14,17 +14,49 @@ epoch=1, beta=0.9, warmup=0.1). Metrics via sklearn to match the project's defin
 
 import logging
 import os
+import random
 
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, roc_auc_score
 
-from EduCDM.ICD.ICD import ICD
-from EduCDM.ICD.etl import dict_etl, inc_stream, item2users, transform, user2items
+
+def _patch_groupby():
+    """Keep EduCDM's interaction transforms compatible with pandas >= 2.2."""
+
+    import EduCDM.ICD.ICD as _icd
+    import EduCDM.ICD.etl as _etl
+
+    def user2items(df, dict2=None):
+        users = {}
+        if dict2:
+            dict2.u2i = users
+        for uid, group in df.groupby("user_id"):
+            if dict2:
+                dict2.add_user_items_responses(uid, group["item_id"], group["score"])
+            users[uid] = [int(value) for value in (group["item_id"] * 2 + group["score"] + 1)]
+        return users
+
+    def item2users(df, dict2=None):
+        items = {}
+        for iid, group in df.groupby("item_id"):
+            if dict2:
+                dict2.add_item_users_responses(iid, group["user_id"], group["score"])
+            items[iid] = [int(value) for value in (group["user_id"] * 2 + group["score"] + 1)]
+        return items
+
+    _etl.user2items = _icd.user2items = user2items
+    _etl.item2users = _icd.item2users = item2users
+    return user2items, item2users
+
+
+user2items, item2users = _patch_groupby()
+from EduCDM.ICD.ICD import ICD  # noqa: E402
+from EduCDM.ICD.etl import dict_etl, inc_stream, transform  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(HERE, "..", "GNCDM", "data")
+DATA = os.path.join(HERE, "..", "data")
 OUT = os.path.join(HERE, "icd_out_A")
 os.makedirs(OUT, exist_ok=True)
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -33,6 +65,18 @@ logger = logging.getLogger("icd_A")
 NEW_CONCEPTS = [0, 1, 3, 6]
 USER_N, ITEM_N, KNOW_N = 4209, 20, 11
 ALPHA, TOLERANCE, BETA, WARMUP, EPOCH, STREAM_PER_STAGE = 0.2, 0.2, 0.9, 0.1, 1, 25
+SEED = int(os.environ.get("ICD_TRAIN_SEED", "0"))
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+set_seed(SEED)
 
 
 # --- copied verbatim from experiments/_core/run_incremental_math1.py (pure numpy/pandas) ---
@@ -177,5 +221,7 @@ row = {
 }
 print(f"  old-test n={n_o}: AUC={auc_o:.4f} ACC={acc_o:.4f} F1={f1_o:.4f} RMSE={rmse_o:.4f}")
 print(f"  new-test n={n_n}: AUC={auc_n:.4f} ACC={acc_n:.4f} F1={f1_n:.4f} RMSE={rmse_n:.4f}")
-pd.DataFrame([row]).to_csv(os.path.join(OUT, "icd_row_math1_random_split.csv"), index=False)
-print("row ->", os.path.join(OUT, "icd_row_math1_random_split.csv"))
+out_csv = os.environ.get("ICD_OUTPUT_CSV", os.path.join(OUT, "icd_row_math1_random_split.csv"))
+os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
+pd.DataFrame([row]).to_csv(out_csv, index=False)
+print("row ->", out_csv)

@@ -21,6 +21,7 @@ Usage:
 
 import logging
 import os
+import random
 import sys
 
 import numpy as np
@@ -39,6 +40,18 @@ NEW_ITEM_FRAC = 0.34
 ALPHA, TOLERANCE, BETA, WARMUP, EPOCH = 0.2, 0.2, 0.9, 0.1, 1  # official ICD main() defaults
 MAX_U2I, MAX_I2U = 128, 64  # neighborhood caps (dense junyi: ~204 answers/user)
 EVAL_BS = 256
+SEED = int(os.environ.get("ICD_TRAIN_SEED", "0"))
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+set_seed(SEED)
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"icd_out_{DATASET}")
 os.makedirs(OUT, exist_ok=True)
@@ -260,7 +273,8 @@ row = {
 print(f"\n===== ICD (cdm=ncd) on {DATASET}_random_split — Approach A =====")
 print(f"  old-test n={n_o}: AUC={auc_o:.4f} ACC={acc_o:.4f} F1={f1_o:.4f} RMSE={rmse_o:.4f}")
 print(f"  new-test n={n_n}: AUC={auc_n:.4f} ACC={acc_n:.4f} F1={f1_n:.4f} RMSE={rmse_n:.4f}")
-out_csv = os.path.join(OUT, f"icd_row_{DATASET}_random_split.csv")
+out_csv = os.environ.get("ICD_OUTPUT_CSV", os.path.join(OUT, f"icd_row_{DATASET}_random_split.csv"))
+os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
 pd.DataFrame([row]).to_csv(out_csv, index=False)
 # ready-to-append line (TMD column = RD) for all_methods_{DATASET}_random_split.csv
 print("\nappend to all_methods_%s_random_split.csv (last col=TMD):" % DATASET)

@@ -314,7 +314,7 @@ def run_ewc(meta, device, *, seed=42, lambdas=None, eval_split="test"):
     return rows
 
 
-def run_der(meta, device, *, seed=42, eval_split="test"):
+def run_der(meta, device, *, seed=42, eval_split="test", mem_size=MEM_SIZE):
     from avalanche.training.supervised import DER
 
     print("\n=== DER++（早停）===")
@@ -324,7 +324,7 @@ def run_der(meta, device, *, seed=42, eval_split="test"):
         model,
         optim.Adam(model.parameters(), lr=LR),
         nn.CrossEntropyLoss(),
-        mem_size=MEM_SIZE,
+        mem_size=mem_size,
         alpha=DER_ALPHA,
         beta=DER_BETA,
         train_mb_size=TRAIN_MB_SIZE,
@@ -357,11 +357,12 @@ def run_der(meta, device, *, seed=42, eval_split="test"):
             b0 = model.student_emb.weight.data.clone().cpu()
     old_m, new_m = _eval_both(model, meta, device, split=eval_split)
     r = _row(
-        f"DER++ (mem={MEM_SIZE})",
+        f"DER++ (mem={mem_size})",
         old_m,
         new_m,
         baseline_tmd(b0, model, meta["old_user_ids"], EMBED_DIM),
     )
+    r["mem_size"] = mem_size
     print(f"  DER++: AUC_old={r['AUC_old']:.4f} AUC_new={r['AUC_new']:.4f}")
     return r
 
@@ -438,6 +439,49 @@ def select_baselines_on_validation(meta, device, *, seed=42):
     der_test = run_der(meta, device, seed=seed, eval_split="test")
     der_test["selection_source"] = "validation_early_stopping"
     return [ewc_test, der_test, clora_test]
+
+
+def run_fixed_baselines(
+    meta,
+    device,
+    *,
+    seed=42,
+    ewc_lambda,
+    der_mem_size=MEM_SIZE,
+    clora_lambda=None,
+):
+    """Run only preselected baseline hyperparameters without any lambda sweep."""
+
+    rows = []
+    if ewc_lambda is not None:
+        ewc_row = run_ewc(
+            meta,
+            device,
+            seed=seed,
+            lambdas=[ewc_lambda],
+            eval_split="test",
+        )[0]
+        ewc_row["selected_lambda"] = ewc_lambda
+        ewc_row["selection_source"] = "fixed_from_existing_result"
+        rows.append(ewc_row)
+
+    if der_mem_size is not None:
+        der_row = run_der(meta, device, seed=seed, eval_split="test", mem_size=der_mem_size)
+        der_row["selection_source"] = "fixed_from_existing_result"
+        rows.append(der_row)
+
+    if clora_lambda is not None:
+        clora_row = run_clora(
+            meta,
+            device,
+            seed=seed,
+            lambdas=[clora_lambda],
+            eval_split="test",
+        )[0]
+        clora_row["selected_lambda"] = clora_lambda
+        clora_row["selection_source"] = "fixed_from_existing_result"
+        rows.append(clora_row)
+    return rows
 
 
 # ==========================================================================
