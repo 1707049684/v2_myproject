@@ -1,12 +1,14 @@
 # 固定参数的五 seed 显著性流程
 
-使用 [run_fixed_significance_profiles.sh](../scripts/run_fixed_significance_profiles.sh) 在服务器顺序运行四个预设 profile。它固定训练 seed 为 `1 7 21 42 84`，不会在本轮实验中扫描 λ 或 memory size，也不会覆盖既有的 `all_methods_*.csv` 单 seed 表。
+使用 [run_fixed_significance_profiles.sh](../scripts/run_fixed_significance_profiles.sh) 在服务器上按指定数据集运行固定 profile。它固定训练 seed 为 `1 7 21 42 84`，不会在本轮实验中扫描 λ 或 memory size，也不会覆盖既有的 `all_methods_*.csv` 单 seed 表。
 
 ```bash
 cd GNCDM
 ICD_PYTHON=/opt/icd-venv/bin/python \
-  bash scripts/run_fixed_significance_profiles.sh --device cuda:0
+  bash scripts/run_fixed_significance_profiles.sh --dataset math1 --device cuda:0
 ```
+
+入口脚本现在必须显式指定 `--dataset math1`、`--dataset a0910` 或 `--dataset junyi`，因此不会默认启动全部数据集。`--dataset a0910` 会依次运行 A0910 的 random 和 user profile；如只需其中一个，可额外指定 `--split random` 或 `--split user`。只有显式传入 `--all` 才会运行四个预设 profile。
 
 中断后使用 `--resume`。只有通过 protocol 和完整方法集合校验的 `trials/seed_<seed>.csv` 会被复用。
 
