@@ -260,3 +260,25 @@
 - CLEAN-Fullï¼šmean |y1-y0|_2=0ï¼›w/o OrthoMaskâ‰ˆ0.78ï¼›w/o FrozenBiasâ‰ˆ0.17ï¼›w/o OCMâ‰ˆ0.76ã€‚
 - äº§ç‰©ï¼š`aligned_umap_math1_pred_ablation_grid.png` + å„æ–¹æ³• `*_pred_drift.png`ï¼›pdf/svg åœ¨ `additonal/`ã€‚
 - **å½“å‰çŠ¶æ€**ï¼šæ”¹åŠ¨æœªæäº¤ã€‚
+
+### ×·¼Ó£ºÏÔÖøĞÔ¼ì²â¸ÄÎª Balanced_ACC£¬ÌŞ³ı CLEAN-LoRA / Full-Replay
+- Ö÷ÖÕµã£º`Balanced_ACC = 0.7*ACC_old + 0.3*ACC_new`£¨×Ô `_stat_acc_clone` ºÏÈëÖ÷²Ö£©¡£
+- ÏÔÖøĞÔ roster Ö»Ñµ/±È£ºAnchor + EWC/DER++/C-LoRA/X-DER/C-LoRA-GNCDM/ICD + CLEAN-Full¡£
+- `CLEAN-LoRA`¡¢`Full-Replay` ²»½ø¶à seed trial£»µã¹À¼ÆÈÔÔÚ `all_methods_*.csv`¡£
+- ¸üĞÂ£º`statistics.py`¡¢`run_statistical_trials.py`¡¢`docs/statistical_significance.md`¡¢Ïà¹Ø²âÊÔ£¨20 passed£©¡£
+- **µ±Ç°×´Ì¬**£º¸Ä¶¯Î´Ìá½»¡£
+
+### ×·¼Ó£ºµ¼ÈëÈı·İ random ÏÔÖøĞÔ½á¹û²¢ÓÃ Balanced_ACC ÖØ·ÖÎö
+- Ô´£ºWPS `math1_random.tar.gz` / `junyi_random.tar.gz` / `a0910_random.tar.gz` ¡ú `incremental_result/significance_trials/*/`¡£
+- Ô­ÅÜ¿Ú¾¶£º`Balanced_AUC` + ±È½Ïº¬ CLEAN-LoRA£»Full-Replay ÒÑÑµµ«Î´Èë¼ìÑé¡£
+- Î´ÖØÑµ£º»ùÓÚ `per_seed_results.csv` °´ĞÂ¿Ú¾¶ÖØ·ÖÎö£¨`Balanced_ACC`£¬ÅÅ³ı CLEAN-LoRA/Full-Replay£©¡ú `*/acc_reanalysis/`¡£
+- Òªµã£ºjunyi/a0910 ÉÏ CLEAN-Full ¶Ô 6 »ùÏß ACC È«Ê¤£¨5/5£©£»math1 ÉÏÓ® EWC/C-LoRA/C-LoRA-GNCDM/ICD£¬¶Ô DER++/X-DER ÂÔ¸º»ò³ÖÆ½£»5 seed ÈÔ exploratory_underpowered¡£
+
+### ×·¼Ó£º°´ Balanced_ACC ³ö¾ßºÏ²¢ÏÔÖøĞÔÆÀ¼Û
+- ¹«Ê½£º`0.7*ACC_old + 0.3*ACC_new`£»Ä¿±ê CLEAN-Full£»»ùÏß 6 ¸ö£¨ÎŞ LoRA/oracle£©¡£
+- ºÏ²¢±¨¸æ£º`incremental_result/significance_trials/balanced_acc_combined/formal_significance_acc_report.md`¡£
+
+### ×·¼Ó£º³ÎÇåÏÔÖøĞÔ¿Ú¾¶¡ª¡ªÑµÁ·º¬ LoRA/Oracle£¬¼ìÑé²»º¬
+- `REQUESTED_METHODS` ÈÔº¬ CLEAN-LoRA / Full-Replay£¨Óë·şÎñÆ÷ÒÑÅÜ½á¹û¼æÈİ£¬¿É `--resume`£©¡£
+- `comparison_methods` Ä¬ÈÏÖ»ÓĞ 6 ¸öÏÖÊµ»ùÏß£»Ö÷ÖÕµã `Balanced_ACC`¡£
+- `--include-oracle` ¿ÉÑ¡°Ñ Full-Replay ÁÙÊ±¼ÓÈë¼ìÑé¡£

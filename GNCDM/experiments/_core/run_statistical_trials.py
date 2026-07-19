@@ -51,9 +51,20 @@ from run_xder import run_xder, run_xder_user_split  # noqa: E402
 
 DEFAULT_SEEDS = [1, 7, 21, 42, 84]
 DEFAULT_TARGET = "CLEAN-Full"
+# Train DNA / LoRA / Full-Replay together; only the first enters the default
+# superiority family. CLEAN-LoRA and Full-Replay are saved in per-seed tables
+# but excluded from default paired significance tests.
 GNCDM_INCREMENTAL_STRATEGIES = frozenset(
     {"Ours (Dynamic DNA)", "Ours (LoRA)", "Full Replay Oracle"}
 )
+COMPARISON_METHODS = [
+    "EWC",
+    "DER++",
+    "C-LoRA",
+    "X-DER",
+    "C-LoRA-GNCDM",
+    "ICD",
+]
 REQUESTED_METHODS = [
     "G-NCDM(Anchor)",
     "EWC",
@@ -76,15 +87,7 @@ FIXED_BASELINE_PROFILES = {
         "gncdm_clora_lambda": 10.0,
         "xder_mem_size": 5_000,
         "methods": list(REQUESTED_METHODS),
-        "comparison_methods": [
-            "EWC",
-            "DER++",
-            "C-LoRA",
-            "X-DER",
-            "C-LoRA-GNCDM",
-            "ICD",
-            "CLEAN-LoRA",
-        ],
+        "comparison_methods": list(COMPARISON_METHODS),
     },
     ("a0910", "random"): {
         "source_table": "all_methods_a0910_random_split.csv",
@@ -95,15 +98,7 @@ FIXED_BASELINE_PROFILES = {
         "gncdm_clora_lambda": 10.0,
         "xder_mem_size": 5_000,
         "methods": list(REQUESTED_METHODS),
-        "comparison_methods": [
-            "EWC",
-            "DER++",
-            "C-LoRA",
-            "X-DER",
-            "C-LoRA-GNCDM",
-            "ICD",
-            "CLEAN-LoRA",
-        ],
+        "comparison_methods": list(COMPARISON_METHODS),
     },
     ("a0910", "user"): {
         "source_table": "all_methods_a0910_user_split.csv",
@@ -114,15 +109,7 @@ FIXED_BASELINE_PROFILES = {
         "gncdm_clora_lambda": 10.0,
         "xder_mem_size": 5_000,
         "methods": list(REQUESTED_METHODS),
-        "comparison_methods": [
-            "EWC",
-            "DER++",
-            "C-LoRA",
-            "X-DER",
-            "C-LoRA-GNCDM",
-            "ICD",
-            "CLEAN-LoRA",
-        ],
+        "comparison_methods": list(COMPARISON_METHODS),
     },
     ("junyi", "random"): {
         "source_table": "all_methods_junyi_random_split.csv",
@@ -133,15 +120,7 @@ FIXED_BASELINE_PROFILES = {
         "gncdm_clora_lambda": 0.1,
         "xder_mem_size": 5_000,
         "methods": list(REQUESTED_METHODS),
-        "comparison_methods": [
-            "EWC",
-            "DER++",
-            "C-LoRA",
-            "X-DER",
-            "C-LoRA-GNCDM",
-            "ICD",
-            "CLEAN-LoRA",
-        ],
+        "comparison_methods": list(COMPARISON_METHODS),
     },
 }
 METRIC_COLUMNS = [
@@ -202,7 +181,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--metrics",
         nargs="+",
         default=[DEFAULT_PRIMARY_METRIC],
-        help="Predeclared metrics to test; default is Balanced_AUC only.",
+        help="Predeclared metrics to test; default is Balanced_ACC only.",
     )
     parser.add_argument("--bootstrap-reps", type=int, default=DEFAULT_BOOTSTRAP_REPS)
     parser.add_argument("--bootstrap-seed", type=int, default=DEFAULT_BOOTSTRAP_SEED)
@@ -215,7 +194,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--include-oracle",
         action="store_true",
-        help="Also test CLEAN-Full against Full-Replay; it is otherwise output-only as an oracle.",
+        help=(
+            "Also test CLEAN-Full against Full-Replay. Full-Replay is always trained and "
+            "saved, but excluded from the default comparison family."
+        ),
     )
     parser.add_argument("--skip-analysis", action="store_true")
     return parser.parse_args(argv)
@@ -649,7 +631,11 @@ def _write_manifest(
         "bootstrap_seed": args.bootstrap_seed,
         "baseline_hyperparameter_selection": config["fixed_baselines"]["selection_source"],
         "icd_python": args.icd_python,
-        "oracle_policy": "Full-Replay is saved but excluded from the default comparison family.",
+        "oracle_policy": (
+            "CLEAN-LoRA and Full-Replay are trained and saved in per-seed tables, "
+            "but excluded from the default Balanced_ACC comparison family "
+            "(pass --include-oracle to add Full-Replay)."
+        ),
         "drift_policy": "TMD/RD is not comparable across gncdm_concept and embedding spaces.",
         "device": str(device),
         "torch_version": torch.__version__,

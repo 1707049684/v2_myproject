@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from incremental.statistics import (
+    DEFAULT_PRIMARY_METRIC,
+    NEW_TASK_ACC_WEIGHT,
+    OLD_TASK_ACC_WEIGHT,
     StatisticalInputError,
+    add_derived_metrics,
     analyze_paired_results,
     holm_adjust,
     minimum_pairs_for_exact_holm,
@@ -59,6 +63,8 @@ def _results_frame():
                     "method": "Ours",
                     "AUC_old": 0.80,
                     "AUC_new": 0.80 + seed * 0.001,
+                    "ACC_old": 0.70,
+                    "ACC_new": 0.70 + seed * 0.001,
                 },
                 {
                     "dataset": "toy",
@@ -68,6 +74,8 @@ def _results_frame():
                     "method": "Baseline A",
                     "AUC_old": 0.75,
                     "AUC_new": 0.75 + seed * 0.001,
+                    "ACC_old": 0.65,
+                    "ACC_new": 0.65 + seed * 0.001,
                 },
                 {
                     "dataset": "toy",
@@ -77,10 +85,36 @@ def _results_frame():
                     "method": "Baseline B",
                     "AUC_old": 0.76,
                     "AUC_new": 0.76 + seed * 0.001,
+                    "ACC_old": 0.66,
+                    "ACC_new": 0.66 + seed * 0.001,
                 },
             ]
         )
     return pd.DataFrame(rows)
+
+
+def test_balanced_acc_is_the_default_weighted_primary_metric():
+    frame = add_derived_metrics(_results_frame())
+
+    assert DEFAULT_PRIMARY_METRIC == "Balanced_ACC"
+    ours = frame.loc[(frame["method"] == "Ours") & (frame["seed"] == 1)].iloc[0]
+    assert OLD_TASK_ACC_WEIGHT == pytest.approx(0.7)
+    assert NEW_TASK_ACC_WEIGHT == pytest.approx(0.3)
+    assert ours["Balanced_ACC"] == pytest.approx(0.7 * 0.70 + 0.3 * 0.701)
+
+
+def test_balanced_acc_analysis_uses_prespecified_task_weights():
+    analysis = analyze_paired_results(
+        _results_frame(),
+        target="Ours",
+        baselines=["Baseline A", "Baseline B"],
+        metrics=["Balanced_ACC"],
+        bootstrap_reps=100,
+        bootstrap_seed=9,
+    )
+
+    assert set(analysis.summary["metric"]) == {"Balanced_ACC"}
+    assert (analysis.significance["oriented_delta_mean"] > 0).all()
 
 
 def test_analysis_outputs_expected_schema_and_holm_values():

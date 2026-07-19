@@ -1086,3 +1086,8 @@ LoRA 对新概念的编码器与读出均为 **rank=16 瓶颈**（W_new=A@B；�
 ## 目录约定：画图脚本放 GNCDM/plot/（2026-07-09）
 - `experiments/` 只保留增量主实验入口与 `_core/` 管线；`plot_*.py`、epoch 曲线、论文配图等可视化脚本统一迁至 `GNCDM/plot/`（见 `plot/README.md`）。
 - 画图脚本通过 `sys.path` 引用 `experiments/`、`experiments/_core/`、`GNCDM/`；产物 CSV/PNG 仍写 `incremental_result/`。
+
+## �����Լ��ھ���2026-07-19��
+- ��ʽ��Լ������յ��Ϊ **Balanced_ACC**���� Balanced_AUC����Ȩ�� 0.7/0.3 ƫ�����񱣳֡�
+- �Ƚϼ��岻�� CLEAN-LoRA��������Ч��ѡ��������Խ�Լ��飩�� Full-Replay��oracle �Ͻ磩��
+- �����Ա����ڵ� seed `all_methods_*.csv` ����Ʊ��У�������������á�

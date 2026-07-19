@@ -41,9 +41,11 @@ def test_gncdm_clora_and_xder_keep_their_own_canonical_spaces():
     assert trials._method_family("X-DER")[2] == "gncdm_concept"
 
 
-def test_requested_roster_uses_anchor_and_clean_aliases_only():
+def test_requested_roster_trains_lora_and_oracle_but_excludes_them_from_tests():
     profile = trials._fixed_baseline_profile("a0910", "random")
     assert profile["methods"] == trials.REQUESTED_METHODS
+    assert "CLEAN-LoRA" in profile["methods"]
+    assert "Full-Replay" in profile["methods"]
     assert trials._default_baselines(profile) == [
         "EWC",
         "DER++",
@@ -51,8 +53,9 @@ def test_requested_roster_uses_anchor_and_clean_aliases_only():
         "X-DER",
         "C-LoRA-GNCDM",
         "ICD",
-        "CLEAN-LoRA",
     ]
+    assert "CLEAN-LoRA" not in profile["comparison_methods"]
+    assert "Full-Replay" not in profile["comparison_methods"]
     assert trials._canonical_method("Base") == "G-NCDM(Anchor)"
     assert trials._canonical_method("Ours (Dynamic DNA)") == "CLEAN-Full"
     assert trials._canonical_method("Ours (LoRA)") == "CLEAN-LoRA"

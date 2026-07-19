@@ -25,7 +25,7 @@ ICD_PYTHON=/opt/icd-venv/bin/python \
 
 ## 运行模型集合
 
-随机划分运行以下十个结果行：
+随机划分训练并写入以下十个结果行：
 
 1. `G-NCDM(Anchor)`（现有 `Base`）
 2. `EWC`
@@ -38,9 +38,9 @@ ICD_PYTHON=/opt/icd-venv/bin/python \
 9. `CLEAN-Full`
 10. `CLEAN-LoRA`
 
-`CLEAN-Full` 和 `CLEAN-LoRA` 分别是现有 `Ours (Dynamic DNA)` 和 `Ours (LoRA)` 的正式显示名，不会重复训练。`a0910/user` 的 X-DER 固定使用 `mem=5000`，并按该 trial 的 support/query seed 与训练 seed 运行。`Full-Replay` 是 oracle 上界，默认写入结果但不加入现实持续学习方法的优越性检验。
+`CLEAN-Full` 和 `CLEAN-LoRA` 分别是现有 `Ours (Dynamic DNA)` 和 `Ours (LoRA)` 的正式显示名，不会重复训练。`a0910/user` 的 X-DER 固定使用 `mem=5000`，并按该 trial 的 support/query seed 与训练 seed 运行。`Full-Replay` 是 oracle 上界，`CLEAN-LoRA` 是参数高效备选：二者都会写入每 seed 结果表，但**默认不进入**现实持续学习方法的优越性检验（可用 `--include-oracle` 把 Full-Replay 临时加入比较）。
 
-`G-NCDM(Anchor)` 对应旧任务 `Base`，没有新任务指标，因此会写入每 seed 结果表，但不能参与默认 `Balanced_AUC` 配对检验。
+`G-NCDM(Anchor)` 对应旧任务 `Base`，没有新任务指标，因此会写入每 seed 结果表，但不能参与默认 `Balanced_ACC` 配对检验。
 
 ## ICD 独立环境
 
@@ -48,6 +48,6 @@ ICD 使用 EduCDM，和主实验环境隔离。入口通过 `--icd-python`（或
 
 ## 统计解释
 
-默认目标是 `CLEAN-Full`，比较对象为实际可比较的 `CLEAN-LoRA`、EWC、DER++、C-LoRA、C-LoRA-GNCDM、ICD，以及 random profile 中的 X-DER。统计采用 paired exact sign-flip test、bootstrap CI 与 Holm 校正。
+默认主终点是 `Balanced_ACC = 0.7 × ACC_old + 0.3 × ACC_new`，优先衡量旧任务保持；它不是类别不平衡评估中的 balanced accuracy。默认目标是 `CLEAN-Full`，比较对象为 EWC、DER++、C-LoRA、C-LoRA-GNCDM、ICD，以及各 profile 中的 X-DER（不含 CLEAN-LoRA / Full-Replay）。统计采用 paired exact sign-flip test、bootstrap CI 与 Holm 校正。
 
 五个 paired seed 的双侧精确检验最小 p 值是 `0.0625`，因此在 `alpha=0.05` 下不能给出显著性拒绝结论；结果会被标记为 `exploratory_underpowered`，但仍保留效应量、置信区间和精确 p 值。

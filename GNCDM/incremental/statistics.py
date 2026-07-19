@@ -18,9 +18,11 @@ import pandas as pd
 
 DEFAULT_BOOTSTRAP_REPS = 20_000
 DEFAULT_BOOTSTRAP_SEED = 20_260_716
-DEFAULT_PRIMARY_METRIC = "Balanced_AUC"
+DEFAULT_PRIMARY_METRIC = "Balanced_ACC"
 DEFAULT_ALPHA = 0.05
 MAX_EXACT_PAIRS = 20
+OLD_TASK_ACC_WEIGHT = 0.7
+NEW_TASK_ACC_WEIGHT = 0.3
 
 REQUIRED_COLUMNS = ("dataset", "split", "seed", "method")
 METRIC_DIRECTIONS = {
@@ -31,6 +33,7 @@ METRIC_DIRECTIONS = {
     "F1_old": 1,
     "F1_new": 1,
     "Balanced_AUC": 1,
+    "Balanced_ACC": 1,
     "RMSE_old": -1,
     "RMSE_new": -1,
     "TMD": -1,
@@ -53,16 +56,23 @@ class AnalysisResult:
 def add_derived_metrics(results: pd.DataFrame) -> pd.DataFrame:
     """Return a copy with predeclared derived metrics added.
 
-    ``Balanced_AUC`` assigns equal weight to retained-old-task and new-task
-    discrimination. It is only defined when both source values are numeric.
+    ``Balanced_AUC`` assigns equal weight to retained old-task and new-task
+    discrimination. ``Balanced_ACC`` uses the prespecified task weighting of
+    ``0.7 * ACC_old + 0.3 * ACC_new``. Each is only defined when both of its
+    source values are numeric. ``Balanced_ACC`` is not the classification
+    metric commonly called balanced accuracy.
     """
 
     frame = results.copy()
-    for column in ("AUC_old", "AUC_new"):
+    for column in ("AUC_old", "AUC_new", "ACC_old", "ACC_new"):
         if column in frame:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
     if {"AUC_old", "AUC_new"}.issubset(frame.columns):
         frame["Balanced_AUC"] = (frame["AUC_old"] + frame["AUC_new"]) / 2.0
+    if {"ACC_old", "ACC_new"}.issubset(frame.columns):
+        frame["Balanced_ACC"] = (
+            OLD_TASK_ACC_WEIGHT * frame["ACC_old"] + NEW_TASK_ACC_WEIGHT * frame["ACC_new"]
+        )
     return frame
 
 

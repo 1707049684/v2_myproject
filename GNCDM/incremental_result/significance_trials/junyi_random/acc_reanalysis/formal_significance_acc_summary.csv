@@ -1,0 +1,9 @@
+dataset,split,protocol,method,metric,n,mean,sd
+junyi,random,3b3caf91efab385f,C-LoRA,Balanced_ACC,5,0.7180722531463726,0.016501315383536566
+junyi,random,3b3caf91efab385f,C-LoRA-GNCDM,Balanced_ACC,5,0.727066671702057,0.02394069648102737
+junyi,random,3b3caf91efab385f,CLEAN-Full,Balanced_ACC,5,0.7722436645927095,0.001408817700114679
+junyi,random,3b3caf91efab385f,DER++,Balanced_ACC,5,0.7591957875669467,0.0016907465094589842
+junyi,random,3b3caf91efab385f,EWC,Balanced_ACC,5,0.7151487177297382,0.0183618626200499
+junyi,random,3b3caf91efab385f,G-NCDM(Anchor),Balanced_ACC,0,,
+junyi,random,3b3caf91efab385f,ICD,Balanced_ACC,5,0.6875563932636571,0.0
+junyi,random,3b3caf91efab385f,X-DER,Balanced_ACC,5,0.761567917592666,0.0022025990254976365
