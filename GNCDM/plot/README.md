@@ -32,6 +32,7 @@ python plot_epoch_curve_final_math1.py       # 合并上述 CSV，出终版图
 | `plot_aligned_umap_math1_baselines.py` | 同口径：Full-Replay / X-DER / C-LoRA-GNCDM（EWC/DER/ICD 无概念 θ，不可画） |
 | `plot_old_pred_dist_ablation.py` | CLEAN 聚合消融：旧题 \(\hat y\) 密度（user_split）；`--dataset math1|a0910` |
 | `plot_aligned_umap_math1_pred_ablation.py` | Math1 **random_split**：旧题 \(\hat y\) AlignedUMAP 消融；另出 **轨迹箭头×3**（`*_traj`）与 **残差 UMAP(Δŷ)**（`*_delta`）放大对比 |
+| `plot_aligned_umap_a0910_pred_ablation.py` | ASSIST a0910 **random_split**：同上消融（α=0.1，`N_OLD_PRED=256` 子采样旧题维）；需 GPU |
 
 **ICD 不在这张图里**：ICD 是单遍流式方法，新题阶段是否更新参数由 `turning_point()`
 按分布漂移量门控决定（实测本次 25 个 chunk 全部未触发，零样本泛化），没有"随 epoch 反复
