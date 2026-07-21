@@ -1,0 +1,190 @@
+Paradigm,Model,Dataset,Metric,mean,std,n
+Anchor,G-NCDM,Junyi,ACC_last,78.4039,0.153,10.0
+Anchor,G-NCDM,Junyi,ACC_new,,,
+Anchor,G-NCDM,Junyi,F1_last,85.5319,0.1381,10.0
+Anchor,G-NCDM,Junyi,F1_new,,,
+Anchor,G-NCDM,Junyi,RMSE_last,38.7163,0.049,10.0
+Anchor,G-NCDM,Junyi,RMSE_new,,,
+Anchor,G-NCDM,Junyi,BD,,,
+Anchor,G-NCDM,a0910,ACC_last,73.5115,0.1542,10.0
+Anchor,G-NCDM,a0910,ACC_new,,,
+Anchor,G-NCDM,a0910,F1_last,81.3499,0.2625,10.0
+Anchor,G-NCDM,a0910,F1_new,,,
+Anchor,G-NCDM,a0910,RMSE_last,42.6827,0.1229,10.0
+Anchor,G-NCDM,a0910,RMSE_new,,,
+Anchor,G-NCDM,a0910,BD,,,
+Anchor,G-NCDM,Math1,ACC_last,72.1365,0.5135,10.0
+Anchor,G-NCDM,Math1,ACC_new,,,
+Anchor,G-NCDM,Math1,F1_last,71.7216,1.6514,10.0
+Anchor,G-NCDM,Math1,F1_new,,,
+Anchor,G-NCDM,Math1,RMSE_last,42.4289,0.4231,10.0
+Anchor,G-NCDM,Math1,RMSE_new,,,
+Anchor,G-NCDM,Math1,BD,,,
+Ours,CLEAN-Full,Junyi,ACC_last,78.4039,0.153,10.0
+Ours,CLEAN-Full,Junyi,ACC_new,74.5311,0.2984,10.0
+Ours,CLEAN-Full,Junyi,F1_last,85.5319,0.1381,10.0
+Ours,CLEAN-Full,Junyi,F1_new,81.1002,0.1271,10.0
+Ours,CLEAN-Full,Junyi,RMSE_last,38.7163,0.049,10.0
+Ours,CLEAN-Full,Junyi,RMSE_new,41.8264,0.1121,10.0
+Ours,CLEAN-Full,Junyi,BD,0.0,0.0,10.0
+Ours,CLEAN-Full,a0910,ACC_last,73.5115,0.1542,10.0
+Ours,CLEAN-Full,a0910,ACC_new,72.2149,0.1887,10.0
+Ours,CLEAN-Full,a0910,F1_last,81.3499,0.2625,10.0
+Ours,CLEAN-Full,a0910,F1_new,79.6122,0.2006,10.0
+Ours,CLEAN-Full,a0910,RMSE_last,42.6827,0.1229,10.0
+Ours,CLEAN-Full,a0910,RMSE_new,43.446,0.1118,10.0
+Ours,CLEAN-Full,a0910,BD,0.0,0.0,10.0
+Ours,CLEAN-Full,Math1,ACC_last,72.1365,0.5135,10.0
+Ours,CLEAN-Full,Math1,ACC_new,72.246,4.6934,10.0
+Ours,CLEAN-Full,Math1,F1_last,71.7216,1.6514,10.0
+Ours,CLEAN-Full,Math1,F1_new,57.5264,2.7467,10.0
+Ours,CLEAN-Full,Math1,RMSE_last,42.4289,0.4231,10.0
+Ours,CLEAN-Full,Math1,RMSE_new,45.6447,2.393,10.0
+Ours,CLEAN-Full,Math1,BD,0.0,0.0,10.0
+Ours,CLEAN-LoRA,Junyi,ACC_last,78.4039,0.153,10.0
+Ours,CLEAN-LoRA,Junyi,ACC_new,73.5652,0.6429,10.0
+Ours,CLEAN-LoRA,Junyi,F1_last,85.5319,0.1381,10.0
+Ours,CLEAN-LoRA,Junyi,F1_new,80.6482,0.3924,10.0
+Ours,CLEAN-LoRA,Junyi,RMSE_last,38.7163,0.049,10.0
+Ours,CLEAN-LoRA,Junyi,RMSE_new,42.4298,0.4429,10.0
+Ours,CLEAN-LoRA,Junyi,BD,0.0,0.0,10.0
+Ours,CLEAN-LoRA,a0910,ACC_last,73.5115,0.1542,10.0
+Ours,CLEAN-LoRA,a0910,ACC_new,72.1169,0.243,10.0
+Ours,CLEAN-LoRA,a0910,F1_last,81.3499,0.2625,10.0
+Ours,CLEAN-LoRA,a0910,F1_new,79.5545,0.3995,10.0
+Ours,CLEAN-LoRA,a0910,RMSE_last,42.6827,0.1229,10.0
+Ours,CLEAN-LoRA,a0910,RMSE_new,43.8034,0.2269,10.0
+Ours,CLEAN-LoRA,a0910,BD,0.0,0.0,10.0
+Ours,CLEAN-LoRA,Math1,ACC_last,72.1365,0.5135,10.0
+Ours,CLEAN-LoRA,Math1,ACC_new,68.5004,3.0017,10.0
+Ours,CLEAN-LoRA,Math1,F1_last,71.7216,1.6514,10.0
+Ours,CLEAN-LoRA,Math1,F1_new,54.7274,2.5,10.0
+Ours,CLEAN-LoRA,Math1,RMSE_last,42.4289,0.4231,10.0
+Ours,CLEAN-LoRA,Math1,RMSE_new,47.7267,1.5922,10.0
+Ours,CLEAN-LoRA,Math1,BD,0.0,0.0,10.0
+Baselines,Full Replay Oracle,Junyi,ACC_last,78.5454,0.2521,10.0
+Baselines,Full Replay Oracle,Junyi,ACC_new,75.4736,0.2185,10.0
+Baselines,Full Replay Oracle,Junyi,F1_last,85.7394,0.1702,10.0
+Baselines,Full Replay Oracle,Junyi,F1_new,81.4858,0.2587,10.0
+Baselines,Full Replay Oracle,Junyi,RMSE_last,38.7104,0.1168,10.0
+Baselines,Full Replay Oracle,Junyi,RMSE_new,40.8621,0.0922,10.0
+Baselines,Full Replay Oracle,Junyi,BD,4.8774,1.2909,10.0
+Baselines,Full Replay Oracle,a0910,ACC_last,73.6589,0.12,10.0
+Baselines,Full Replay Oracle,a0910,ACC_new,72.9924,0.3318,10.0
+Baselines,Full Replay Oracle,a0910,F1_last,81.5806,0.2081,10.0
+Baselines,Full Replay Oracle,a0910,F1_new,80.2013,0.4511,10.0
+Baselines,Full Replay Oracle,a0910,RMSE_last,42.7694,0.0988,10.0
+Baselines,Full Replay Oracle,a0910,RMSE_new,43.0833,0.1172,10.0
+Baselines,Full Replay Oracle,a0910,BD,6.9222,0.7247,10.0
+Baselines,Full Replay Oracle,Math1,ACC_last,72.1989,0.2842,10.0
+Baselines,Full Replay Oracle,Math1,ACC_new,75.1238,0.2849,10.0
+Baselines,Full Replay Oracle,Math1,F1_last,71.9366,0.8542,10.0
+Baselines,Full Replay Oracle,Math1,F1_new,66.6251,0.9808,10.0
+Baselines,Full Replay Oracle,Math1,RMSE_last,42.1822,0.3115,10.0
+Baselines,Full Replay Oracle,Math1,RMSE_new,39.6575,0.2825,10.0
+Baselines,Full Replay Oracle,Math1,BD,6.4652,1.5977,10.0
+Baselines,EWC,Junyi,ACC_last,71.5432,2.0277,10.0
+Baselines,EWC,Junyi,ACC_new,71.5833,0.4015,10.0
+Baselines,EWC,Junyi,F1_last,79.1801,2.0499,10.0
+Baselines,EWC,Junyi,F1_new,78.2671,0.517,10.0
+Baselines,EWC,Junyi,RMSE_last,44.8253,1.3407,10.0
+Baselines,EWC,Junyi,RMSE_new,43.9841,0.2131,10.0
+Baselines,EWC,Junyi,BD,8.9222,0.1956,10.0
+Baselines,EWC,a0910,ACC_last,66.8718,0.6729,10.0
+Baselines,EWC,a0910,ACC_new,64.0924,0.6083,10.0
+Baselines,EWC,a0910,F1_last,74.7937,0.9057,10.0
+Baselines,EWC,a0910,F1_new,71.8403,0.7151,10.0
+Baselines,EWC,a0910,RMSE_last,52.5014,0.3837,10.0
+Baselines,EWC,a0910,RMSE_new,53.8799,0.4092,10.0
+Baselines,EWC,a0910,BD,9.0074,0.0863,10.0
+Baselines,EWC,Math1,ACC_last,68.5928,0.5052,10.0
+Baselines,EWC,Math1,ACC_new,73.2671,0.8645,10.0
+Baselines,EWC,Math1,F1_last,66.0084,1.6317,10.0
+Baselines,EWC,Math1,F1_new,61.6367,1.5538,10.0
+Baselines,EWC,Math1,RMSE_last,50.3014,0.4542,10.0
+Baselines,EWC,Math1,RMSE_new,43.1051,0.6752,10.0
+Baselines,EWC,Math1,BD,9.7044,0.2636,10.0
+Baselines,DER++,Junyi,ACC_last,76.5343,0.2794,10.0
+Baselines,DER++,Junyi,ACC_new,74.2654,0.2571,10.0
+Baselines,DER++,Junyi,F1_last,83.6614,0.2449,10.0
+Baselines,DER++,Junyi,F1_new,80.4354,0.2457,10.0
+Baselines,DER++,Junyi,RMSE_last,40.0022,0.2518,10.0
+Baselines,DER++,Junyi,RMSE_new,41.6068,0.127,10.0
+Baselines,DER++,Junyi,BD,3.0896,1.1429,10.0
+Baselines,DER++,a0910,ACC_last,69.4958,0.4381,10.0
+Baselines,DER++,a0910,ACC_new,67.658,0.5117,10.0
+Baselines,DER++,a0910,F1_last,77.7369,0.5297,10.0
+Baselines,DER++,a0910,F1_new,76.3384,0.3981,10.0
+Baselines,DER++,a0910,RMSE_last,45.0836,0.4248,10.0
+Baselines,DER++,a0910,RMSE_new,46.2538,0.2575,10.0
+Baselines,DER++,a0910,BD,3.6425,0.9401,10.0
+Baselines,DER++,Math1,ACC_last,71.7219,0.522,10.0
+Baselines,DER++,Math1,ACC_new,75.5215,0.2187,10.0
+Baselines,DER++,Math1,F1_last,72.8738,1.357,10.0
+Baselines,DER++,Math1,F1_new,67.0244,1.1438,10.0
+Baselines,DER++,Math1,RMSE_last,42.561,0.3563,10.0
+Baselines,DER++,Math1,RMSE_new,38.9995,0.0959,10.0
+Baselines,DER++,Math1,BD,1.321,1.1143,10.0
+Baselines,C-LoRA,Junyi,ACC_last,71.2581,2.0078,10.0
+Baselines,C-LoRA,Junyi,ACC_new,73.1166,0.3597,10.0
+Baselines,C-LoRA,Junyi,F1_last,79.4124,1.7378,10.0
+Baselines,C-LoRA,Junyi,F1_new,79.3209,0.3363,10.0
+Baselines,C-LoRA,Junyi,RMSE_last,44.0974,1.3089,10.0
+Baselines,C-LoRA,Junyi,RMSE_new,42.9259,0.2079,10.0
+Baselines,C-LoRA,Junyi,BD,19.6903,0.2723,10.0
+Baselines,C-LoRA,a0910,ACC_last,67.6436,0.2821,10.0
+Baselines,C-LoRA,a0910,ACC_new,64.2831,0.4635,10.0
+Baselines,C-LoRA,a0910,F1_last,75.7935,0.3543,10.0
+Baselines,C-LoRA,a0910,F1_new,72.0066,0.4811,10.0
+Baselines,C-LoRA,a0910,RMSE_last,52.1324,0.1806,10.0
+Baselines,C-LoRA,a0910,RMSE_new,53.9356,0.3479,10.0
+Baselines,C-LoRA,a0910,BD,13.1083,0.092,10.0
+Baselines,C-LoRA,Math1,ACC_last,68.8799,0.5062,10.0
+Baselines,C-LoRA,Math1,ACC_new,71.9781,0.6798,10.0
+Baselines,C-LoRA,Math1,F1_last,66.4472,1.6068,10.0
+Baselines,C-LoRA,Math1,F1_new,59.8601,1.0828,10.0
+Baselines,C-LoRA,Math1,RMSE_last,50.2783,0.4562,10.0
+Baselines,C-LoRA,Math1,RMSE_new,46.0489,0.5813,10.0
+Baselines,C-LoRA,Math1,BD,10.8169,0.2701,10.0
+Baselines,X-DER,Junyi,ACC_last,77.5902,0.4246,10.0
+Baselines,X-DER,Junyi,ACC_new,73.1869,0.6913,10.0
+Baselines,X-DER,Junyi,F1_last,85.2825,0.2084,10.0
+Baselines,X-DER,Junyi,F1_new,79.7261,0.5044,10.0
+Baselines,X-DER,Junyi,RMSE_last,39.5951,0.3196,10.0
+Baselines,X-DER,Junyi,RMSE_new,42.5366,0.2379,10.0
+Baselines,X-DER,Junyi,BD,6.3589,1.0578,10.0
+Baselines,X-DER,a0910,ACC_last,72.8628,0.2441,10.0
+Baselines,X-DER,a0910,ACC_new,69.8283,0.4393,10.0
+Baselines,X-DER,a0910,F1_last,81.1834,0.2788,10.0
+Baselines,X-DER,a0910,F1_new,78.2556,0.2401,10.0
+Baselines,X-DER,a0910,RMSE_last,43.0211,0.2117,10.0
+Baselines,X-DER,a0910,RMSE_new,44.7911,0.2557,10.0
+Baselines,X-DER,a0910,BD,7.3168,1.5652,10.0
+Baselines,X-DER,Math1,ACC_last,72.5447,0.2146,10.0
+Baselines,X-DER,Math1,ACC_new,75.1222,0.3518,10.0
+Baselines,X-DER,Math1,F1_last,73.4532,1.4671,10.0
+Baselines,X-DER,Math1,F1_new,66.1009,1.0235,10.0
+Baselines,X-DER,Math1,RMSE_last,42.1539,0.344,10.0
+Baselines,X-DER,Math1,RMSE_new,39.0727,0.1897,10.0
+Baselines,X-DER,Math1,BD,7.2435,2.0044,10.0
+Baselines,ICD,Junyi,ACC_last,70.0129,1.4708,10.0
+Baselines,ICD,Junyi,ACC_new,66.835,4.4995,10.0
+Baselines,ICD,Junyi,F1_last,70.7362,8.2856,10.0
+Baselines,ICD,Junyi,F1_new,64.2018,13.4624,10.0
+Baselines,ICD,Junyi,RMSE_last,45.2716,1.6372,10.0
+Baselines,ICD,Junyi,RMSE_new,47.6062,0.435,10.0
+Baselines,ICD,Junyi,BD,119.0189,24.5225,10.0
+Baselines,ICD,a0910,ACC_last,54.3977,0.0,10.0
+Baselines,ICD,a0910,ACC_new,65.0,0.0,10.0
+Baselines,ICD,a0910,F1_last,59.2038,0.0,10.0
+Baselines,ICD,a0910,F1_new,75.0974,0.0,10.0
+Baselines,ICD,a0910,RMSE_last,49.1587,0.0,10.0
+Baselines,ICD,a0910,RMSE_new,47.2827,0.0,10.0
+Baselines,ICD,a0910,BD,422.4229,0.0,10.0
+Baselines,ICD,Math1,ACC_last,68.6176,0.0,10.0
+Baselines,ICD,Math1,ACC_new,71.1036,0.0,10.0
+Baselines,ICD,Math1,F1_last,62.8757,0.0,10.0
+Baselines,ICD,Math1,F1_new,51.4302,0.0,10.0
+Baselines,ICD,Math1,RMSE_last,46.8248,0.0,10.0
+Baselines,ICD,Math1,RMSE_new,47.1935,0.0,10.0
+Baselines,ICD,Math1,BD,95.7548,0.0,10.0

@@ -181,7 +181,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--metrics",
         nargs="+",
         default=[DEFAULT_PRIMARY_METRIC],
-        help="Predeclared metrics to test; default is Balanced_ACC only.",
+        help="Predeclared metrics to test; default is ACC_overall only.",
     )
     parser.add_argument("--bootstrap-reps", type=int, default=DEFAULT_BOOTSTRAP_REPS)
     parser.add_argument("--bootstrap-seed", type=int, default=DEFAULT_BOOTSTRAP_SEED)
@@ -460,6 +460,24 @@ def _validate_icd_interpreter(python_executable: str) -> None:
         )
 
 
+def _resolve_output_dir(path: str | Path | None, *, dataset: str, split: str) -> Path:
+    """Return an absolute output directory anchored at ``GNCDM_DIR`` when relative.
+
+    ICD runs with ``cwd=GNCDM_DIR``. If the parent process started elsewhere and
+    ``--output-dir`` stayed relative, the child could write under GNCDM while the
+    parent checked ``exists()`` against a different cwd and falsely failed.
+    """
+
+    if path is None:
+        return (
+            GNCDM_DIR / "incremental_result" / "significance_trials" / f"{dataset}_{split}"
+        ).resolve()
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        resolved = GNCDM_DIR / resolved
+    return resolved.resolve()
+
+
 def _run_icd_trial(
     config: dict,
     args: argparse.Namespace,
@@ -469,23 +487,31 @@ def _run_icd_trial(
 ) -> dict:
     """Run ICD once in its own environment and normalize its single result row."""
 
-    output_path = output_dir / "icd_raw" / f"seed_{seed}.csv"
+    output_path = (Path(output_dir) / "icd_raw" / f"seed_{seed}.csv").resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "ICD_TRAIN_SEED": str(seed),
-            "ICD_OUTPUT_CSV": str(output_path),
-            "ICD_SUPPORT_QUERY_SEED": str(args.support_query_seed),
-            "ICD_SUPPORT_FRAC": str(args.support_frac),
-        }
-    )
-    command = _icd_command(config, args, device)
-    print(f"\n=== External ICD: seed={seed} ===")
-    print(" ".join(command))
-    subprocess.run(command, check=True, cwd=GNCDM_DIR, env=environment)
-    if not output_path.exists():
-        raise RuntimeError(f"ICD completed without writing its expected result: {output_path}")
+    if output_path.exists() and output_path.stat().st_size > 0:
+        print(f"[reuse] ICD seed={seed}: {output_path}")
+    else:
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "ICD_TRAIN_SEED": str(seed),
+                "ICD_OUTPUT_CSV": str(output_path),
+                "ICD_SUPPORT_QUERY_SEED": str(args.support_query_seed),
+                "ICD_SUPPORT_FRAC": str(args.support_frac),
+            }
+        )
+        command = _icd_command(config, args, device)
+        print(f"\n=== External ICD: seed={seed} ===")
+        print(" ".join(command))
+        print(f"ICD_OUTPUT_CSV={output_path}")
+        subprocess.run(command, check=True, cwd=str(GNCDM_DIR), env=environment)
+        if not output_path.exists():
+            raise RuntimeError(
+                f"ICD completed without writing its expected result: {output_path} "
+                f"(cwd={GNCDM_DIR}). If an older run wrote under experiments/icd_out_*/, "
+                "copy that seed_*.csv into this path and re-run."
+            )
     rows = pd.read_csv(output_path)
     if len(rows) != 1:
         raise ValueError(f"Expected exactly one ICD row in {output_path}, found {len(rows)}.")
@@ -633,7 +659,7 @@ def _write_manifest(
         "icd_python": args.icd_python,
         "oracle_policy": (
             "CLEAN-LoRA and Full-Replay are trained and saved in per-seed tables, "
-            "but excluded from the default Balanced_ACC comparison family "
+            "but excluded from the default ACC_overall comparison family "
             "(pass --include-oracle to add Full-Replay)."
         ),
         "drift_policy": "TMD/RD is not comparable across gncdm_concept and embedding spaces.",
@@ -804,14 +830,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
 
     deterministic = not args.non_deterministic
-    output_dir = (
-        Path(args.output_dir)
-        if args.output_dir
-        else GNCDM_DIR
-        / "incremental_result"
-        / "significance_trials"
-        / f"{args.dataset}_{args.split}"
-    )
+    output_dir = _resolve_output_dir(args.output_dir, dataset=args.dataset, split=args.split)
     output_dir.mkdir(parents=True, exist_ok=True)
     device = _device_from_arg(args.device)
     protocol = _protocol_id(

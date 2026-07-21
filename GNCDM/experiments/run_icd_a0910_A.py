@@ -83,6 +83,9 @@ set_seed(SEED)
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"icd_out_{DATASET}")
 os.makedirs(OUT, exist_ok=True)
+# Resolve before os.chdir(OUT): a relative ICD_OUTPUT_CSV would otherwise land under OUT/.
+if os.environ.get("ICD_OUTPUT_CSV"):
+    os.environ["ICD_OUTPUT_CSV"] = os.path.abspath(os.environ["ICD_OUTPUT_CSV"])
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 logger = logging.getLogger(f"icd_{DATASET}")
 
@@ -357,7 +360,8 @@ if SPLIT_TAG == "user_split":
         f"  AUC/RMSE 与阈值无关。random_split 仍固定 t=0.5。写入主表时请在脚注说明此点。"
     )
 out_csv = os.environ.get("ICD_OUTPUT_CSV", os.path.join(OUT, f"icd_row_{DATASET}_{SPLIT_TAG}.csv"))
-os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
+out_csv = os.path.abspath(out_csv)
+os.makedirs(os.path.dirname(out_csv), exist_ok=True)
 pd.DataFrame([row]).to_csv(out_csv, index=False)
 # ready-to-append line (TMD column = RD) for all_methods_{DATASET}_random_split.csv
 print("\nappend to all_methods_%s_%s.csv (last col=TMD):" % (DATASET, SPLIT_TAG))

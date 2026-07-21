@@ -1,0 +1,127 @@
+{
+  "created_at": "2026-07-20T07:00:33.159993+00:00",
+  "dataset": "junyi",
+  "split": "random",
+  "protocol": "5922b271f52e9acf",
+  "train_seeds": [
+    2,
+    3,
+    5,
+    11,
+    13
+  ],
+  "minimum_formal_seed_count": 8,
+  "inference_status": "exploratory_underpowered",
+  "inference_warning": "Only 5 paired seeds were run. With exact two-sided sign-flip testing and 6 planned Holm hypotheses, at least 8 seeds are needed for a rejection to be attainable.",
+  "support_query_seed": null,
+  "support_frac": null,
+  "deterministic_cudnn": true,
+  "target": "CLEAN-Full",
+  "baselines": [
+    "EWC",
+    "DER++",
+    "C-LoRA",
+    "X-DER",
+    "C-LoRA-GNCDM",
+    "ICD"
+  ],
+  "metrics": [
+    "Balanced_ACC"
+  ],
+  "alpha": 0.05,
+  "bootstrap_reps": 20000,
+  "bootstrap_seed": 20260716,
+  "baseline_hyperparameter_selection": "fixed_from_existing_result",
+  "icd_python": "/opt/conda/bin/python",
+  "oracle_policy": "CLEAN-LoRA and Full-Replay are trained and saved in per-seed tables, but excluded from the default Balanced_ACC comparison family (pass --include-oracle to add Full-Replay).",
+  "drift_policy": "TMD/RD is not comparable across gncdm_concept and embedding spaces.",
+  "device": "cuda:0",
+  "torch_version": "2.12.0+cu126",
+  "cuda_version": "12.6",
+  "python_version": "3.10.14",
+  "data_fingerprints": {
+    "train": {
+      "path": "/workspace/v2_myproject-main/data/junyi/new_random_split/train.csv",
+      "bytes": 1550927,
+      "mtime_ns": 1784462465000000000
+    },
+    "valid": {
+      "path": "/workspace/v2_myproject-main/data/junyi/new_random_split/valid.csv",
+      "bytes": 193960,
+      "mtime_ns": 1784462465000000000
+    },
+    "test": {
+      "path": "/workspace/v2_myproject-main/data/junyi/new_random_split/test.csv",
+      "bytes": 193910,
+      "mtime_ns": 1784462465000000000
+    },
+    "Q": {
+      "path": "/workspace/v2_myproject-main/data/junyi/Q_matrix.npy",
+      "bytes": 111200,
+      "mtime_ns": 1784462465000000000
+    }
+  },
+  "config": {
+    "name": "junyi",
+    "n_user": 1000,
+    "n_item": 712,
+    "n_know": 39,
+    "new_concepts": [
+      2,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      13,
+      16,
+      18,
+      19,
+      21,
+      22,
+      23,
+      24,
+      26,
+      28,
+      29,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37
+    ],
+    "alpha": 0.1,
+    "strategy_select_metric": "acc",
+    "fixed_baselines": {
+      "source_table": "all_methods_junyi_random_split.csv",
+      "selection_source": "fixed_from_existing_result",
+      "ewc_lambda": 1000,
+      "der_mem_size": 5000,
+      "clora_lambda": 10.0,
+      "gncdm_clora_lambda": 0.1,
+      "xder_mem_size": 5000,
+      "methods": [
+        "G-NCDM(Anchor)",
+        "EWC",
+        "DER++",
+        "C-LoRA",
+        "X-DER",
+        "Full-Replay",
+        "C-LoRA-GNCDM",
+        "ICD",
+        "CLEAN-Full",
+        "CLEAN-LoRA"
+      ],
+      "comparison_methods": [
+        "EWC",
+        "DER++",
+        "C-LoRA",
+        "X-DER",
+        "C-LoRA-GNCDM",
+        "ICD"
+      ]
+    }
+  }
+}

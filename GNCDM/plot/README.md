@@ -29,7 +29,7 @@ python plot_epoch_curve_final_math1.py       # 合并上述 CSV，出终版图
 | `plot_umap_math1_gncdm.py` | Math1 θ UMAP：默认三面板 G-NCDM \| CLEAN-Full \| CLEAN-LoRA（`--compare all3`） |
 | `plot_tsne_math1_gncdm.py` | Math1 θ t-SNE：同三面板（复用 umap_cache_math1 的 θ） |
 | `plot_aligned_umap_math1_drift.py` | Math1 旧概念 θ 的 AlignedUMAP 两阶段（t=0 Base vs t=1 CLEAN） |
-| `plot_aligned_umap_math1_baselines.py` | 同口径：Full-Replay / X-DER / C-LoRA-GNCDM（EWC/DER/ICD 无概念 θ，不可画） |
+| `plot_aligned_umap_math1_baselines.py` | 同口径：Full-Replay / X-DER / C-LoRA-GNCDM（EWC/DER/ICD 无概念 θ，不可画）；`--method grid` 出 2×2 拼图 |
 | `plot_old_pred_dist_ablation.py` | CLEAN 聚合消融：旧题 \(\hat y\) 密度（user_split）；`--dataset math1|a0910` |
 | `plot_aligned_umap_math1_pred_ablation.py` | Math1 **random_split**：旧题 \(\hat y\) AlignedUMAP 消融；另出 **轨迹箭头×3**（`*_traj`）与 **残差 UMAP(Δŷ)**（`*_delta`）放大对比 |
 | `plot_aligned_umap_a0910_pred_ablation.py` | ASSIST a0910 **random_split**：同上消融（α=0.1，`N_OLD_PRED=256` 子采样旧题维）；需 GPU |

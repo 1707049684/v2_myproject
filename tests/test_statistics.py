@@ -5,8 +5,6 @@ import pandas as pd
 import pytest
 from incremental.statistics import (
     DEFAULT_PRIMARY_METRIC,
-    NEW_TASK_ACC_WEIGHT,
-    OLD_TASK_ACC_WEIGHT,
     StatisticalInputError,
     add_derived_metrics,
     analyze_paired_results,
@@ -93,14 +91,38 @@ def _results_frame():
     return pd.DataFrame(rows)
 
 
-def test_balanced_acc_is_the_default_weighted_primary_metric():
+def test_acc_overall_is_the_default_pooled_primary_metric():
     frame = add_derived_metrics(_results_frame())
 
-    assert DEFAULT_PRIMARY_METRIC == "Balanced_ACC"
+    assert DEFAULT_PRIMARY_METRIC == "ACC_overall"
     ours = frame.loc[(frame["method"] == "Ours") & (frame["seed"] == 1)].iloc[0]
-    assert OLD_TASK_ACC_WEIGHT == pytest.approx(0.7)
-    assert NEW_TASK_ACC_WEIGHT == pytest.approx(0.3)
+    # toy dataset falls back to equal weights
+    assert ours["ACC_overall"] == pytest.approx(0.5 * 0.70 + 0.5 * 0.701)
     assert ours["Balanced_ACC"] == pytest.approx(0.7 * 0.70 + 0.3 * 0.701)
+
+
+def test_acc_overall_uses_dataset_test_interaction_counts():
+    frame = _results_frame()
+    frame["dataset"] = "math1"
+    derived = add_derived_metrics(frame)
+    ours = derived.loc[(derived["method"] == "Ours") & (derived["seed"] == 1)].iloc[0]
+    n_old, n_new = 10901, 5935
+    expected = (n_old * 0.70 + n_new * 0.701) / (n_old + n_new)
+    assert ours["ACC_overall"] == pytest.approx(expected)
+
+
+def test_acc_overall_analysis_uses_pooled_test_accuracy():
+    analysis = analyze_paired_results(
+        _results_frame(),
+        target="Ours",
+        baselines=["Baseline A", "Baseline B"],
+        metrics=["ACC_overall"],
+        bootstrap_reps=100,
+        bootstrap_seed=9,
+    )
+
+    assert set(analysis.summary["metric"]) == {"ACC_overall"}
+    assert (analysis.significance["oriented_delta_mean"] > 0).all()
 
 
 def test_balanced_acc_analysis_uses_prespecified_task_weights():

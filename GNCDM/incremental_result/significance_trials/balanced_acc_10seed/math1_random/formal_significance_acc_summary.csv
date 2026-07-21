@@ -1,0 +1,9 @@
+dataset,split,protocol,method,metric,n,mean,sd
+math1,random,merged_10seed,C-LoRA,ACC_overall,10,0.6997208363031598,0.004570081805079227
+math1,random,merged_10seed,C-LoRA-GNCDM,ACC_overall,10,0.6576205749584224,0.010219312777056759
+math1,random,merged_10seed,CLEAN-Full,ACC_overall,10,0.7217510097410311,0.016219814099366053
+math1,random,merged_10seed,DER++,ACC_overall,10,0.7306129722024234,0.00333717131864818
+math1,random,merged_10seed,EWC,ACC_overall,10,0.7024055595153242,0.005330564300796673
+math1,random,merged_10seed,G-NCDM(Anchor),ACC_overall,0,,
+math1,random,merged_10seed,ICD,ACC_overall,10,0.6949394155381325,0.0
+math1,random,merged_10seed,X-DER,ACC_overall,10,0.7345331432644333,0.0015630306259656074

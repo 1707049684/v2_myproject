@@ -1,0 +1,107 @@
+{
+  "created_at": "2026-07-20T05:44:11.350151+00:00",
+  "dataset": "math1",
+  "split": "random",
+  "protocol": "2f297742f011b7e7",
+  "train_seeds": [
+    2,
+    3,
+    5,
+    11,
+    13
+  ],
+  "minimum_formal_seed_count": 8,
+  "inference_status": "exploratory_underpowered",
+  "inference_warning": "Only 5 paired seeds were run. With exact two-sided sign-flip testing and 6 planned Holm hypotheses, at least 8 seeds are needed for a rejection to be attainable.",
+  "support_query_seed": null,
+  "support_frac": null,
+  "deterministic_cudnn": true,
+  "target": "CLEAN-Full",
+  "baselines": [
+    "EWC",
+    "DER++",
+    "C-LoRA",
+    "X-DER",
+    "C-LoRA-GNCDM",
+    "ICD"
+  ],
+  "metrics": [
+    "Balanced_ACC"
+  ],
+  "alpha": 0.05,
+  "bootstrap_reps": 20000,
+  "bootstrap_seed": 20260716,
+  "baseline_hyperparameter_selection": "fixed_from_existing_result",
+  "icd_python": "/opt/conda/bin/python",
+  "oracle_policy": "CLEAN-LoRA and Full-Replay are trained and saved in per-seed tables, but excluded from the default Balanced_ACC comparison family (pass --include-oracle to add Full-Replay).",
+  "drift_policy": "TMD/RD is not comparable across gncdm_concept and embedding spaces.",
+  "device": "cuda:0",
+  "torch_version": "2.12.0+cu126",
+  "cuda_version": "12.6",
+  "python_version": "3.10.14",
+  "data_fingerprints": {
+    "train": {
+      "path": "/workspace/v2_myproject-main/GNCDM/data/math1_train_0.8_0.2.csv",
+      "bytes": 544263,
+      "mtime_ns": 1784462465000000000
+    },
+    "valid": {
+      "path": "/workspace/v2_myproject-main/GNCDM/data/math1_valid_0.8_0.2.csv",
+      "bytes": 77787,
+      "mtime_ns": 1784462465000000000
+    },
+    "test": {
+      "path": "/workspace/v2_myproject-main/GNCDM/data/math1_test_0.8_0.2.csv",
+      "bytes": 155526,
+      "mtime_ns": 1784462465000000000
+    },
+    "Q": {
+      "path": "/workspace/v2_myproject-main/GNCDM/data/math1_Q_matrix.npy",
+      "bytes": 1888,
+      "mtime_ns": 1784462465000000000
+    }
+  },
+  "config": {
+    "name": "math1",
+    "n_user": 4209,
+    "n_item": 20,
+    "n_know": 11,
+    "new_concepts": [
+      0,
+      1,
+      3,
+      6
+    ],
+    "alpha": 0.2,
+    "strategy_select_metric": "acc",
+    "fixed_baselines": {
+      "source_table": "all_methods_math1_random_split.csv",
+      "selection_source": "fixed_from_existing_result",
+      "ewc_lambda": 10000,
+      "der_mem_size": 5000,
+      "clora_lambda": 10000,
+      "gncdm_clora_lambda": 10.0,
+      "xder_mem_size": 5000,
+      "methods": [
+        "G-NCDM(Anchor)",
+        "EWC",
+        "DER++",
+        "C-LoRA",
+        "X-DER",
+        "Full-Replay",
+        "C-LoRA-GNCDM",
+        "ICD",
+        "CLEAN-Full",
+        "CLEAN-LoRA"
+      ],
+      "comparison_methods": [
+        "EWC",
+        "DER++",
+        "C-LoRA",
+        "X-DER",
+        "C-LoRA-GNCDM",
+        "ICD"
+      ]
+    }
+  }
+}

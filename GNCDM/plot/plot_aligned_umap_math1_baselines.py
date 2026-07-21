@@ -66,7 +66,7 @@ METHOD_META = {
     "lora": ("clean_lora", "CLEAN-LoRA"),
     "freplay": ("full_replay", "Full Replay Oracle"),
     "xder": ("xder", "X-DER"),
-    "clora": ("clora_gncdm", "C-LoRA-GNCDM"),
+    "clora": ("clora_gncdm", "C-LoRA"),  # display name; backbone is still C-LoRA-GNCDM
 }
 
 CANNOT_DO = {
@@ -417,7 +417,12 @@ def plot_dual(z0, z1, score, label: str, out_stem: Path):
     plt.close(fig)
 
 
-def run_one(method_key: str, reuse: bool, force_embed: bool, n_epoch: int, device):
+# 2×2 paper grid: TL CLEAN-Full, TR Full Replay, BL C-LoRA, BR X-DER
+GRID_KEYS = ("full", "freplay", "clora", "xder")
+GRID_PANEL_LETTERS = ("a", "b", "c", "d")
+
+
+def _load_aligned_pair(method_key: str, reuse: bool, force_embed: bool, n_epoch: int, device):
     tag, label = METHOD_META[method_key]
     theta0, theta1, score = load_or_train(method_key, reuse, n_epoch, device)
     z0_path = CACHE_DIR / f"aligned_xy_t0_{tag}.npy"
@@ -430,18 +435,66 @@ def run_one(method_key: str, reuse: bool, force_embed: bool, n_epoch: int, devic
         z0, z1 = run_aligned_umap(theta0, theta1)
         np.save(z0_path, z0)
         np.save(z1_path, z1)
+    return z0, z1, score, label
+
+
+def plot_four_method_grid(panels: list[tuple], out_stem: Path):
+    """panels: list of (z0, z1, score, label) in TL, TR, BL, BR order."""
+    setup_style()
+    fig = plt.figure(figsize=(7.2, 6.4))
+    # 2 method-rows × 2 method-cols; each method cell is itself t0|t1
+    outer = fig.add_gridspec(2, 2, wspace=0.18, hspace=0.32, left=0.04, right=0.88, top=0.90, bottom=0.06)
+    last_sc = None
+    for idx, (z0, z1, score, label) in enumerate(panels):
+        row, col = divmod(idx, 2)
+        inner = outer[row, col].subgridspec(1, 2, wspace=0.08)
+        ax0 = fig.add_subplot(inner[0, 0])
+        ax1 = fig.add_subplot(inner[0, 1])
+        letter = GRID_PANEL_LETTERS[idx]
+        draw_panel(ax0, z0, score, f"({letter}) {label}\nt = 0")
+        last_sc = draw_panel(ax1, z1, score, f"t = 1")
+    cax = fig.add_axes([0.90, 0.18, 0.018, 0.64])
+    cb = fig.colorbar(last_sc, cax=cax)
+    cb.set_label("Score rate (old items)", fontsize=7)
+    cb.ax.tick_params(labelsize=6)
+    fig.suptitle(
+        r"AlignedUMAP of old-concept traits $\theta_{\mathrm{old}}$ (Math1, random_split)",
+        fontsize=10,
+        y=0.98,
+    )
+    for ext in ("png", "pdf", "svg"):
+        path = f"{out_stem}.{ext}"
+        fig.savefig(path, dpi=300 if ext == "png" else None, bbox_inches="tight")
+        print(f"wrote {path}")
+    plt.close(fig)
+
+
+def run_one(method_key: str, reuse: bool, force_embed: bool, n_epoch: int, device):
+    tag, label = METHOD_META[method_key]
+    z0, z1, score, label = _load_aligned_pair(method_key, reuse, force_embed, n_epoch, device)
     emb = np.linalg.norm(z1 - z0, axis=1)
     print(f"  2D |z1-z0|_2 mean={emb.mean():.6f} max={emb.max():.6f}")
     plot_dual(z0, z1, score, label, SAVE_DIR / f"aligned_umap_math1_{tag}_old_drift")
+
+
+def run_grid(reuse: bool, force_embed: bool, n_epoch: int, device):
+    panels = []
+    for key in GRID_KEYS:
+        z0, z1, score, label = _load_aligned_pair(key, reuse, force_embed, n_epoch, device)
+        emb = np.linalg.norm(z1 - z0, axis=1)
+        print(f"  [{label}] 2D |z1-z0|_2 mean={emb.mean():.6f} max={emb.max():.6f}")
+        panels.append((z0, z1, score, label))
+    plot_four_method_grid(panels, SAVE_DIR / "aligned_umap_math1_four_methods_old_drift")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--method",
-        choices=list(METHOD_META) + ["all_gncdm"],
+        choices=list(METHOD_META) + ["all_gncdm", "grid"],
         default="all_gncdm",
-        help="all_gncdm = freplay+xder+clora (plus optional full/lora)",
+        help="grid = 2×2 CLEAN-Full / Full Replay / C-LoRA / X-DER; "
+        "all_gncdm = freplay+xder+clora (plus optional full/lora)",
     )
     parser.add_argument("--reuse", action="store_true")
     parser.add_argument("--force-embed", action="store_true")
@@ -457,6 +510,10 @@ def main():
     print("Cannot do as θ_old AlignedUMAP:")
     for k, v in CANNOT_DO.items():
         print(f"  - {k}: {v}")
+
+    if args.method == "grid":
+        run_grid(args.reuse, args.force_embed, args.epochs, device)
+        return
 
     if args.method == "all_gncdm":
         keys = ["freplay", "xder", "clora"]

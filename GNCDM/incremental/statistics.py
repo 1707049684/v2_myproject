@@ -18,11 +18,19 @@ import pandas as pd
 
 DEFAULT_BOOTSTRAP_REPS = 20_000
 DEFAULT_BOOTSTRAP_SEED = 20_260_716
-DEFAULT_PRIMARY_METRIC = "Balanced_ACC"
+DEFAULT_PRIMARY_METRIC = "ACC_overall"
 DEFAULT_ALPHA = 0.05
 MAX_EXACT_PAIRS = 20
+# Legacy fixed-weight endpoint (kept as a derived column only; not the default test metric).
 OLD_TASK_ACC_WEIGHT = 0.7
 NEW_TASK_ACC_WEIGHT = 0.3
+# Test-split interaction counts after strict bipartition (random_split). Used for
+# ACC_overall = (n_old * ACC_old + n_new * ACC_new) / (n_old + n_new).
+TEST_INTERACTION_COUNTS = {
+    "math1": (10901, 5935),
+    "junyi": (13997, 6398),
+    "a0910": (37642, 16836),
+}
 
 REQUIRED_COLUMNS = ("dataset", "split", "seed", "method")
 METRIC_DIRECTIONS = {
@@ -30,6 +38,7 @@ METRIC_DIRECTIONS = {
     "AUC_new": 1,
     "ACC_old": 1,
     "ACC_new": 1,
+    "ACC_overall": 1,
     "F1_old": 1,
     "F1_new": 1,
     "Balanced_AUC": 1,
@@ -53,14 +62,32 @@ class AnalysisResult:
     significance: pd.DataFrame
 
 
+def _pool_counts_for_row(row: pd.Series) -> tuple[float, float] | None:
+    """Return ``(n_old, n_new)`` used to pool ACC_overall for one result row."""
+
+    if "n_old_test" in row.index and "n_new_test" in row.index:
+        n_old, n_new = row["n_old_test"], row["n_new_test"]
+        if pd.notna(n_old) and pd.notna(n_new) and float(n_old) + float(n_new) > 0:
+            return float(n_old), float(n_new)
+    dataset = str(row["dataset"]) if "dataset" in row.index and pd.notna(row["dataset"]) else ""
+    if dataset in TEST_INTERACTION_COUNTS:
+        return TEST_INTERACTION_COUNTS[dataset]
+    # Equal-weight fallback for unit tests / ad-hoc tables without known counts.
+    return 1.0, 1.0
+
+
 def add_derived_metrics(results: pd.DataFrame) -> pd.DataFrame:
     """Return a copy with predeclared derived metrics added.
 
-    ``Balanced_AUC`` assigns equal weight to retained old-task and new-task
-    discrimination. ``Balanced_ACC`` uses the prespecified task weighting of
-    ``0.7 * ACC_old + 0.3 * ACC_new``. Each is only defined when both of its
-    source values are numeric. ``Balanced_ACC`` is not the classification
-    metric commonly called balanced accuracy.
+    ``ACC_overall`` pools old/new test accuracy by each dataset's test-split
+    interaction counts (see ``TEST_INTERACTION_COUNTS``), i.e.
+    ``(n_old * ACC_old + n_new * ACC_new) / (n_old + n_new)``. This is the
+    default primary endpoint. ``Balanced_AUC`` assigns equal weight to retained
+    old-task and new-task discrimination. ``Balanced_ACC`` keeps the legacy
+    fixed ``0.7 / 0.3`` task weighting and is not the default test metric; it is
+    also not the classification metric commonly called balanced accuracy.
+    Each derived metric is only defined when both of its source values are
+    numeric.
     """
 
     frame = results.copy()
@@ -73,6 +100,16 @@ def add_derived_metrics(results: pd.DataFrame) -> pd.DataFrame:
         frame["Balanced_ACC"] = (
             OLD_TASK_ACC_WEIGHT * frame["ACC_old"] + NEW_TASK_ACC_WEIGHT * frame["ACC_new"]
         )
+        overall = []
+        for _, row in frame.iterrows():
+            if pd.isna(row["ACC_old"]) or pd.isna(row["ACC_new"]):
+                overall.append(np.nan)
+                continue
+            n_old, n_new = _pool_counts_for_row(row)
+            overall.append(
+                (n_old * float(row["ACC_old"]) + n_new * float(row["ACC_new"])) / (n_old + n_new)
+            )
+        frame["ACC_overall"] = overall
     return frame
 
 

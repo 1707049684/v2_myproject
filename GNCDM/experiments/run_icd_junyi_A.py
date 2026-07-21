@@ -55,6 +55,9 @@ set_seed(SEED)
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"icd_out_{DATASET}")
 os.makedirs(OUT, exist_ok=True)
+# Resolve before os.chdir(OUT): a relative ICD_OUTPUT_CSV would otherwise land under OUT/.
+if os.environ.get("ICD_OUTPUT_CSV"):
+    os.environ["ICD_OUTPUT_CSV"] = os.path.abspath(os.environ["ICD_OUTPUT_CSV"])
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 logger = logging.getLogger(f"icd_{DATASET}")
 

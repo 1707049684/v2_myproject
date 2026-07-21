@@ -282,3 +282,20 @@
 - `REQUESTED_METHODS` �Ժ� CLEAN-LoRA / Full-Replay������������ܽ�����ݣ��� `--resume`����
 - `comparison_methods` Ĭ��ֻ�� 6 ����ʵ���ߣ����յ� `Balanced_ACC`��
 - `--include-oracle` ��ѡ�� Full-Replay ��ʱ������顣
+
+### ׷�ӣ��޸� ICD ���·�����̵��� seed trial ʧ��
+- ����`run_icd_*_A.py` �� `os.chdir(OUT)` ��д����� `ICD_OUTPUT_CSV`���ļ��䵽 `experiments/icd_out_*/`��
+- �޸���runner ͳһ���� `output_dir`��ICD �ű��� chdir ǰ�� `ICD_OUTPUT_CSV` ���Ի������� icd_raw �� reuse��
+### 追加：导入 5 extra seeds 并合并为 10-seed Balanced_ACC
+- 源：WPS `math1/junyi/a0910_random_extra.tar.gz`（seeds 2,3,5,11,13）。
+- 注：`junyi_random_extra.tar.gz` 内层目录误名为 `math1_random_extra`，但 CSV `dataset=junyi` 正确。
+- 合并旧 5 seed → `incremental_result/significance_trials/balanced_acc_10seed/`。
+- 10 seed ≥ Holm 所需 8，可做正式检验。
+- junyi/a0910：CLEAN-Full 对 6 基线全胜 10-0，全部 Holm 显著（delta>0）。
+- math1：对 EWC/C-LoRA/C-LoRA-GNCDM/ICD 显著更好；对 DER++ 不显著略负；对 X-DER 显著更差（双侧检验）。
+
+### 追加：显著性主终点改为 ACC_overall
+- 不再用固定权重 Balanced_ACC=0.7/0.3。
+- 默认主终点：测试集交互加权 `ACC_overall=(n_old*ACC_old+n_new*ACC_new)/(n_old+n_new)`。
+- 权重：math1 10901:5935；junyi 13997:6398；a0910 37642:16836。
+- 已重跑 10-seed 配对检验；junyi/a0910 仍对 6 基线全显著；math1 对 X-DER 仍为 dagger（CLEAN 更差），DER++ n.s.。

@@ -59,6 +59,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "data")
 OUT = os.path.join(HERE, "icd_out_A")
 os.makedirs(OUT, exist_ok=True)
+# Resolve before os.chdir(OUT): a relative ICD_OUTPUT_CSV would otherwise land under OUT/.
+if os.environ.get("ICD_OUTPUT_CSV"):
+    os.environ["ICD_OUTPUT_CSV"] = os.path.abspath(os.environ["ICD_OUTPUT_CSV"])
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 logger = logging.getLogger("icd_A")
 
