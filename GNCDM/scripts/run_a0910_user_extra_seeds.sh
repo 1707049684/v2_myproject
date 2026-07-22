@@ -67,7 +67,28 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${ICD_PYTHON}" ]]; then
-    ICD_PYTHON="${PYTHON_BIN}"
+    # Prefer the known cloud EduCDM interpreter when present.
+    if [[ -x /opt/conda/bin/python ]]; then
+        ICD_PYTHON=/opt/conda/bin/python
+    else
+        ICD_PYTHON="${PYTHON_BIN}"
+    fi
+fi
+
+# Catch copy-pasted documentation placeholders before the runner fails obscurely.
+case "${ICD_PYTHON}" in
+    */path/to/*|/path/to/*)
+        echo "ERROR: ICD_PYTHON looks like a documentation placeholder: ${ICD_PYTHON}" >&2
+        echo "Use the real EduCDM interpreter, e.g.:" >&2
+        echo "  ICD_PYTHON=/opt/conda/bin/python bash scripts/run_a0910_user_extra_seeds.sh --device cuda:0" >&2
+        echo "Or omit ICD_PYTHON if /opt/conda/bin/python exists on this box." >&2
+        exit 2
+        ;;
+esac
+
+if [[ ! -x "${ICD_PYTHON}" && ! -f "${ICD_PYTHON}" ]]; then
+    echo "ERROR: ICD_PYTHON does not exist or is not executable: ${ICD_PYTHON}" >&2
+    exit 2
 fi
 
 if [[ "${OUTPUT_DIR}" != /* ]]; then

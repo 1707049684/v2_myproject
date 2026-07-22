@@ -299,3 +299,33 @@
 - 默认主终点：测试集交互加权 `ACC_overall=(n_old*ACC_old+n_new*ACC_new)/(n_old+n_new)`。
 - 权重：math1 10901:5935；junyi 13997:6398；a0910 37642:16836。
 - 已重跑 10-seed 配对检验；junyi/a0910 仍对 6 基线全显著；math1 对 X-DER 仍为 dagger（CLEAN 更差），DER++ n.s.。
+
+### ׷�ӣ����� a0910 user_extra �� 10-seed ACC_overall
+- Դ��WPS `a0910_user_extra.tar` �� `significance_trials/a0910_user_extra/`��seeds 2,3,5,11,13����
+- �� `a0910_user` �ϲ� �� `acc_overall_10seed_a0910_user/`��
+- Query Ȩ�أ�n_old=18677, n_new=8436��support/query seed=7, frac=0.5����
+- CLEAN-Full �� 6 ���� ACC_overall ȫ�� Holm ������10 seed���� *����
+
+
+### 追加：a0910 user 10-seed 各指标显著性标星
+- 脚本：_scratch/sig_a0910_user_metric_stars.py
+- 口径：CLEAN-Full / CLEAN-LoRA 对各指标 vs 6 非 oracle 基线；exact paired sign-flip；Holm within metric（family=6）；* = 对该指标显著优于全部 6 基线。
+- 结果写入 cc_overall_10seed_a0910_user/table_a0910_user_10seed_mean.md + ormal_significance_metric_stars_tests.csv
+- CLEAN-Full：ACC_new*、RMSE_new*；ACC/F1/RMSE_last 与 F1_new 因 vs X-DER 不显著未标星。
+- CLEAN-LoRA：ACC_new*、F1_new*、RMSE_new*；*_last 同样因 X-DER 未标星。
+- **当前状态**：改动未提交。
+
+
+### 追加：a0910 user 10-seed 并入 balanced_acc_10seed
+- 脚本：_scratch/merge_a0910_user_into_balanced_10seed.py
+- 对齐 *_random 结构：0910_user_per_seed_merged.csv + 0910_user/（ACC_overall 显著性报告/method_means/论文表/metric stars）
+- 更新：ormal_significance_acc_tests_all.csv、ormal_significance_acc_report.md、cc_overall_10seed.md、	able_random_10seed_mean.md Notes
+- CLEAN-Full vs 6 基线 ACC_overall 全 *（user query n_old=18677,n_new=8436）
+- **当前状态**：改动未提交。
+
+
+### 追加：Junyi epoch曲线脚本（H100跑）
+- 新增: plot_epoch_curve_{gncdm,avalanche,final}_junyi.py + scripts/run_junyi_epoch_curve_ep15.sh
+- 本机不装 CUDA torch；服务器: bash scripts/run_junyi_epoch_curve_ep15.sh
+- 产物: epoch_curve_junyi_random_split_final_ep15{.png,_old.png,.csv}
+- **当前状态**: 改动未提交，待服务器跑完回传图。

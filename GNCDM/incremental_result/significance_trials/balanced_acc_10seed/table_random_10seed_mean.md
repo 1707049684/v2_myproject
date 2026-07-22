@@ -1,10 +1,10 @@
 # Random-split results (10-seed mean ± std)
 
-Means ± sample standard deviation over seeds `{1, 2, 3, 5, 7, 11, 13, 21, 42, 84}` (n=10). Layout mirrors the paper main table: `ACC/F1/RMSE_last` = `*_old`, `BD` = `TMD` (both ×100, %).
+Means ± sample standard deviation over seeds `{1, 2, 3, 5, 7, 11, 13, 21, 42, 84}` (n=10). Layout mirrors the paper main table; `BD` = `TMD` (both ×100, %).
 
 | Paradigm | Model | Junyi |  |  |  |  |  |  | a0910 |  |  |  |  |  |  | Math1 |  |  |  |  |  |  |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-|  |  | ACC_last ↑ | ACC_new ↑ | F1_last ↑ | F1_new ↑ | RMSE_last ↓ | RMSE_new ↓ | BD ↓ | ACC_last ↑ | ACC_new ↑ | F1_last ↑ | F1_new ↑ | RMSE_last ↓ | RMSE_new ↓ | BD ↓ | ACC_last ↑ | ACC_new ↑ | F1_last ↑ | F1_new ↑ | RMSE_last ↓ | RMSE_new ↓ | BD ↓ |
+|  |  | ACC_old ↑ | ACC_new ↑ | F1_old ↑ | F1_new ↑ | RMSE_old ↓ | RMSE_new ↓ | BD ↓ | ACC_old ↑ | ACC_new ↑ | F1_old ↑ | F1_new ↑ | RMSE_old ↓ | RMSE_new ↓ | BD ↓ | ACC_old ↑ | ACC_new ↑ | F1_old ↑ | F1_new ↑ | RMSE_old ↓ | RMSE_new ↓ | BD ↓ |
 | Anchor | G-NCDM | <u>78.40±0.15</u> | — | <u>85.53±0.14</u> | — | <u>38.72±0.05</u> | — | — | <u>73.51±0.15</u> | — | <u>81.35±0.26</u> | — | **42.68±0.12** | — | — | 72.14±0.51 | — | 71.72±1.65 | — | 42.43±0.42 | — | — |
 | Ours | CLEAN-Full | <u>78.40±0.15</u> | <u>74.53±0.30</u> | <u>85.53±0.14</u> | <u>81.10±0.13</u> | <u>38.72±0.05</u> | 41.83±0.11 | **0.00±0.00** | <u>73.51±0.15</u> | <u>72.21±0.19</u> | <u>81.35±0.26</u> | <u>79.61±0.20</u> | **42.68±0.12** | <u>43.45±0.11</u> | **0.00±0.00** | 72.14±0.51 | 72.25±4.69 | 71.72±1.65 | 57.53±2.75 | 42.43±0.42 | 45.64±2.39 | **0.00±0.00** |
 | Ours | CLEAN-LoRA | <u>78.40±0.15</u> | 73.57±0.64 | <u>85.53±0.14</u> | 80.65±0.39 | <u>38.72±0.05</u> | 42.43±0.44 | **0.00±0.00** | <u>73.51±0.15</u> | 72.12±0.24 | <u>81.35±0.26</u> | 79.55±0.40 | **42.68±0.12** | 43.80±0.23 | **0.00±0.00** | 72.14±0.51 | 68.50±3.00 | 71.72±1.65 | 54.73±2.50 | 42.43±0.42 | 47.73±1.59 | **0.00±0.00** |
@@ -18,21 +18,22 @@ Means ± sample standard deviation over seeds `{1, 2, 3, 5, 7, 11, 13, 21, 42, 8
 ## Notes
 
 1. All values are reported in percentage (%) as **mean ± std** (sample standard deviation, ddof=1) across 10 random seeds.
-2. **Bold** = best mean in column; <u>underline</u> = second-best mean (Anchor contributes only to `*_last`).
-3. Higher is better for ACC/F1; lower is better for RMSE/BD (BD here is the display name for the RD drift metric).
-4. Full-Replay Oracle may replay all historical training data with full-parameter expansion and is a theoretical upper bound (trained/reported, not used as a significance comparator).
-5. **Significance (primary endpoint `ACC_overall = (n_old·ACC_old + n_new·ACC_new)/(n_old+n_new)` on test)** — counts math1 (10901, 5935), junyi (13997, 6398), a0910 (37642, 16836). Exact two-sided paired sign-flip permutation test, Holm-corrected within each dataset over 6 baselines `{EWC, DER++, C-LoRA, X-DER, C-LoRA-GNCDM, ICD}`, α = 0.05, n = 10 seeds. CLEAN-LoRA and Full-Replay are excluded from pairwise tests. `*` = CLEAN-Full significantly **better** (`reject_holm` and Δ>0); `†` = significant difference but CLEAN-Full **worse** (Δ<0); n.s. = not significant.
+2. **Bold** = best mean in column; <u>underline</u> = second-best mean (Anchor contributes only to *_last).
+3. Higher is better for ACC/F1; lower is better for RMSE/BD (BD = RD).
+4. Full-Replay Oracle is a theoretical upper bound (trained/reported, not used as a significance comparator).
+5. **Significance (primary endpoint ACC_overall)** — exact two-sided paired sign-flip permutation test, Holm-corrected within each profile over 6 baselines {EWC, DER++, C-LoRA, X-DER, C-LoRA-GNCDM, ICD}, α=0.05, n=10. CLEAN-LoRA and Full-Replay excluded. * = CLEAN-Full significantly better; † = significant but CLEAN-Full worse; n.s. = not significant.
 
-| Dataset | EWC | DER++ | C-LoRA | X-DER | C-LoRA-GNCDM | ICD |
+| Dataset / split | EWC | DER++ | C-LoRA | X-DER | C-LoRA-GNCDM | ICD |
 |---|---|---|---|---|---|---|
-| Math1 | * (p_holm=0.02344) | n.s. (p_holm=0.06836) | * (p_holm=0.02344) | † (p_holm=0.02344) | * (p_holm=0.01172) | * (p_holm=0.01953) |
-| Junyi | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) |
-| a0910 | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) |
+| Junyi random | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) |
+| a0910 random | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) |
+| Math1 random | * (p_holm=0.02344) | n.s. (p_holm=0.06836) | * (p_holm=0.02344) | † (p_holm=0.02344) | * (p_holm=0.01172) | * (p_holm=0.01953) |
+| a0910 user | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) | * (p_holm=0.01172) |
 
 ### Verdict
 
-- **Junyi**: 6* / 0† / 0 n.s. on `ACC_overall`.
-- **a0910**: 6* / 0† / 0 n.s. on `ACC_overall`.
-- **Math1**: 4* / 1† / 1 n.s. on `ACC_overall`.
+- **Junyi / a0910 random / a0910 user**: CLEAN-Full significantly outperforms all 6 baselines on ACC_overall (all *).
+- **Math1 random**: CLEAN-Full significantly better than EWC, C-LoRA, C-LoRA-GNCDM, ICD; n.s. vs DER++; significantly worse than X-DER (†).
 
-Source CSVs: `*_random_per_seed_merged.csv`; tests: `formal_significance_acc_tests_all.csv`.
+Source CSVs: *_random_per_seed_merged.csv, 0910_user_per_seed_merged.csv; tests: ormal_significance_acc_tests_all.csv.
+User-split paper table: 	able_a0910_user_10seed_mean.md (also under 0910_user/).

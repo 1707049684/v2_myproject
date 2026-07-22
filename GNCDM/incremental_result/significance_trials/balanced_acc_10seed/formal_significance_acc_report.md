@@ -5,6 +5,7 @@ Counts: {'math1': (10901, 5935), 'junyi': (13997, 6398), 'a0910': (37642, 16836)
 Target: CLEAN-Full. Baselines: EWC, DER++, C-LoRA, X-DER, C-LoRA-GNCDM, ICD.
 Excluded from tests: CLEAN-LoRA, Full-Replay.
 Seeds: {1,2,3,5,7,11,13,21,42,84}.
+Also includes `a0910_user` with query counts (n_old=18677, n_new=8436).
 
 ## math1_random
 
@@ -87,3 +88,30 @@ CLEAN-Full mean ACC_overall = 0.7311 (n=10).
 | C-LoRA-GNCDM | 10 | 0.02665 | 0.01872 | 0.03868 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |
 | ICD | 10 | 0.1544 | 0.1535 | 0.1552 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |
 
+## a0910_user
+
+Formal-capable seed count: 10 >= 8 (Holm family size=6).
+
+Query counts (user_split support/query): n_old=18677, n_new=8436, w_old=0.689.
+CLEAN-Full mean ACC_overall = 0.6964 (n=10).
+
+| method | n | ACC_old | ACC_new | ACC_overall | sd |
+|---|---:|---:|---:|---:|---:|
+| CLEAN-LoRA | 10 | 0.7024 | 0.6992 | 0.7014 | 0.0045 |
+| CLEAN-Full | 10 | 0.7024 | 0.6830 | 0.6964 | 0.0045 |
+| X-DER | 10 | 0.6995 | 0.6687 | 0.6899 | 0.0045 |
+| Full-Replay | 10 | 0.6952 | 0.6782 | 0.6899 | 0.0048 |
+| C-LoRA | 10 | 0.6881 | 0.6722 | 0.6832 | 0.0062 |
+| EWC | 10 | 0.6873 | 0.6548 | 0.6772 | 0.0063 |
+| DER++ | 10 | 0.6733 | 0.6529 | 0.6669 | 0.0021 |
+| C-LoRA-GNCDM | 10 | 0.6290 | 0.6474 | 0.6348 | 0.0116 |
+| ICD | 10 | 0.5134 | 0.6339 | 0.5509 | 0.0000 |
+
+| baseline | n | oriented_delta_mean | ci95_low | ci95_high | wins | losses | ties | p_raw | p_holm | reject_holm |
+|---|---|---|---|---|---|---|---|---|---|---|
+| EWC | 10 | 0.01918 | 0.01421 | 0.02449 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |
+| DER++ | 10 | 0.02945 | 0.0267 | 0.03211 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |
+| C-LoRA | 10 | 0.01321 | 0.008332 | 0.01815 | 9 | 1 | 0 | 0.003906 | 0.01172 | True |
+| X-DER | 10 | 0.006418 | 0.005437 | 0.007436 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |
+| C-LoRA-GNCDM | 10 | 0.06161 | 0.05379 | 0.06888 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |
+| ICD | 10 | 0.1455 | 0.1428 | 0.1482 | 10 | 0 | 0 | 0.001953 | 0.01172 | True |

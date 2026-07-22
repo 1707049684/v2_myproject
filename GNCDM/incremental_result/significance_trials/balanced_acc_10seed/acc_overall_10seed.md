@@ -26,3 +26,22 @@ Anchor has no new-item eval; its ACC_overall = ACC_old only.
 | C-LoRA-GNCDM | 69.66±5.01 | 69.55±5.11 | 70.45±1.73 | 70.44±1.72 | 65.76±1.02 | 65.32±1.09 |
 
 Files: `acc_overall_10seed_mean.csv`, `acc_overall_10seed_per_seed.csv`, `acc_overall_10seed_means_long.csv`.
+
+## a0910 user_split
+
+Definition same as above, but on **user_split query** interactions (support/query seed=7, frac=0.5): n_old=18677, n_new=8436, w_old=0.689.
+
+| Model | a0910 user ACC_overall | a0910 user Balanced_ACC |
+|---|---|---|
+| G-NCDM | 70.24±0.54 | — |
+| CLEAN-Full | 69.64±0.45 | 69.66±0.45 |
+| CLEAN-LoRA | 70.14±0.45 | 70.15±0.45 |
+| Full Replay Oracle | 68.99±0.48 | 69.01±0.49 |
+| EWC | 67.72±0.63 | 67.75±0.64 |
+| DER++ | 66.69±0.21 | 66.71±0.21 |
+| C-LoRA | 68.32±0.62 | 68.33±0.62 |
+| X-DER | 68.99±0.45 | 69.03±0.46 |
+| ICD | 55.09±0.00 | 54.95±0.00 |
+| C-LoRA-GNCDM | 63.48±1.16 | 63.45±1.18 |
+
+Source: `a0910_user_per_seed_merged.csv`; profile dir: `a0910_user/`.

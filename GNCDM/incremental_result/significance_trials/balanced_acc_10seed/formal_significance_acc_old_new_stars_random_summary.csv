@@ -1,0 +1,13 @@
+dataset,target,metric,star_all6,n_sig_better,n_sig_worse,n_ns,ns_or_worse
+junyi,CLEAN-Full,ACC_old,True,6,0,0,
+junyi,CLEAN-Full,ACC_new,False,5,1,0,
+junyi,CLEAN-LoRA,ACC_old,True,6,0,0,
+junyi,CLEAN-LoRA,ACC_new,False,2,2,2,"C-LoRA(p_holm=0.0781,d=+0.0045); X-DER(p_holm=0.305,d=+0.0038)"
+a0910,CLEAN-Full,ACC_old,True,6,0,0,
+a0910,CLEAN-Full,ACC_new,False,5,0,1,"C-LoRA-GNCDM(p_holm=0.402,d=+0.0101)"
+a0910,CLEAN-LoRA,ACC_old,True,6,0,0,
+a0910,CLEAN-LoRA,ACC_new,False,5,0,1,"C-LoRA-GNCDM(p_holm=0.447,d=+0.0091)"
+math1,CLEAN-Full,ACC_old,False,4,0,2,"DER++(p_holm=0.15,d=+0.0041); X-DER(p_holm=0.0547,d=-0.0041)"
+math1,CLEAN-Full,ACC_new,False,0,0,6,"EWC(p_holm=1,d=-0.0102); DER++(p_holm=0.305,d=-0.0328); C-LoRA(p_holm=1,d=+0.0027); X-DER(p_holm=0.312,d=-0.0288); C-LoRA-GNCDM(p_holm=1,d=+0.0100); ICD(p_holm=1,d=+0.0114)"
+math1,CLEAN-LoRA,ACC_old,False,4,0,2,"DER++(p_holm=0.15,d=+0.0041); X-DER(p_holm=0.0547,d=-0.0041)"
+math1,CLEAN-LoRA,ACC_new,False,0,6,0,
