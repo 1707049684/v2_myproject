@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Merge junyi epoch CSVs and plot ACC_new / ACC_old (same style as math1 final).
+"""Merge junyi epoch CSVs; plot ACC_new / ACC_old as one 1x2 figure.
 
-  cd GNCDM/plot && python plot_epoch_curve_final_junyi.py --epochs 15
+  cd GNCDM/plot && python plot_epoch_curve_final_junyi.py --epochs 25
 """
 
 import argparse
@@ -13,16 +13,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from plot_epoch_curve_final_math1 import (
-    ICD_NOTE,
-    ORDER,
-    STYLE,
-    apply_x_axis,
-    epochs_for_plot,
-)
+from plot_epoch_curve_final_math1 import ICD_NOTE, ORDER, STYLE, epochs_for_plot
 
-PLOT_DIR = os.path.dirname(os.path.abspath(__file__))
-SAVE_DIR = os.path.join(os.path.dirname(PLOT_DIR), "incremental_result")
+SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "incremental_result")
 
 
 def paths(n_epoch):
@@ -31,65 +24,68 @@ def paths(n_epoch):
         "gncdm": os.path.join(SAVE_DIR, f"epoch_curve_gncdm_junyi_random_split_{tag}.csv"),
         "aval": os.path.join(SAVE_DIR, f"epoch_curve_avalanche_junyi_random_split_{tag}.csv"),
         "out_csv": os.path.join(SAVE_DIR, f"epoch_curve_junyi_random_split_final_{tag}.csv"),
-        "out_png_new": os.path.join(SAVE_DIR, f"epoch_curve_junyi_random_split_final_{tag}.png"),
-        "out_png_old": os.path.join(
-            SAVE_DIR, f"epoch_curve_junyi_random_split_final_old_{tag}.png"
-        ),
+        "out_png": os.path.join(SAVE_DIR, f"epoch_curve_junyi_random_split_final_{tag}.png"),
     }
 
 
-def load_merged(n_epoch):
-    p = paths(n_epoch)
-    df = pd.concat([pd.read_csv(p["gncdm"]), pd.read_csv(p["aval"])], ignore_index=True)
-    df = df[df.epoch <= n_epoch].copy()
-    df.to_csv(p["out_csv"], index=False)
-    print(f"wrote {p['out_csv']}")
-    return df, p
-
-
-def plot_one(df, n_epoch, ycol, ylabel, title, out_png, legend_loc):
-    plt.figure(figsize=(7, 5.6))
+def draw_panel(ax, df, n_epoch, ycol, ylabel, title, legend_loc):
     for name in ORDER:
         sub = epochs_for_plot(df[df.Model == name].sort_values("epoch"), n_epoch)
         if sub.empty or ycol not in sub.columns:
             print(f"[WARN] skip {name} ({ycol})")
             continue
-        plt.plot(sub.epoch, sub[ycol], label=name, linewidth=1.8, markersize=6, **STYLE[name])
-    plt.xlabel("Training epoch (Task2 / new-item incremental stage)")
-    plt.ylabel(ylabel)
-    plt.title(title)
-    apply_x_axis(n_epoch)
-    plt.legend(fontsize=8, ncol=2, loc=legend_loc)
-    plt.grid(alpha=0.3)
-    plt.tight_layout(rect=(0, 0.09, 1, 1))
-    plt.gcf().text(0.02, 0.01, ICD_NOTE.replace("math1", "junyi"), fontsize=6.5, color="#555555", va="bottom")
-    plt.savefig(out_png, dpi=200)
-    print(f"wrote {out_png}")
+        ax.plot(sub.epoch, sub[ycol], label=name, linewidth=1.8, markersize=5, **STYLE[name])
+    ax.set_xlabel("Training epoch (Task2)")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_xlim(1, n_epoch)
+    if n_epoch >= 25:
+        ax.set_xticks(range(1, n_epoch + 1, 2))
+    ax.legend(fontsize=7, ncol=2, loc=legend_loc)
+    ax.grid(alpha=0.3)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--epochs", type=int, default=25)
     args = parser.parse_args()
-    df, p = load_merged(args.epochs)
-    plot_one(
+    n = args.epochs
+    p = paths(n)
+    df = pd.concat([pd.read_csv(p["gncdm"]), pd.read_csv(p["aval"])], ignore_index=True)
+    df = df[df.epoch <= n].copy()
+    df.to_csv(p["out_csv"], index=False)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.8))
+    draw_panel(
+        axes[0],
         df,
-        args.epochs,
+        n,
         "ACC_new",
-        "ACC_new (new items)",
-        f"junyi random_split: efficiency vs. effectiveness (ep1–{args.epochs})",
-        p["out_png_new"],
+        "ACC_new",
+        f"(a) junyi ACC_new (ep1–{n})",
         "lower right",
     )
-    plot_one(
+    draw_panel(
+        axes[1],
         df,
-        args.epochs,
+        n,
         "ACC_old",
-        "ACC_old (old items)",
-        f"junyi random_split: old-task retention vs. training cost (ep1–{args.epochs})",
-        p["out_png_old"],
+        "ACC_old",
+        f"(b) junyi ACC_old (ep1–{n})",
         "lower left",
     )
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    fig.text(
+        0.02,
+        0.01,
+        ICD_NOTE.replace("math1", "junyi"),
+        fontsize=6.5,
+        color="#555555",
+        va="bottom",
+    )
+    fig.savefig(p["out_png"], dpi=200)
+    print(f"wrote {p['out_csv']}")
+    print(f"wrote {p['out_png']}")
 
 
 if __name__ == "__main__":
